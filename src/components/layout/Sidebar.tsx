@@ -12,16 +12,20 @@ import {
   UserCircle,
   ChevronLeft,
   Menu,
+  Package,
+  Wallet,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
 
 const menuItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
+  { icon: Package, label: 'Estoque', path: '/estoque' },
   { icon: ShoppingCart, label: 'Compras', path: '/compras' },
   { icon: DollarSign, label: 'Vendas', path: '/vendas' },
   { icon: CreditCard, label: 'Contas a Pagar', path: '/contas-pagar' },
   { icon: Receipt, label: 'Contas a Receber', path: '/contas-receber' },
+  { icon: Wallet, label: 'Cartões', path: '/cartoes' },
   { icon: Users, label: 'Clientes', path: '/clientes' },
   { icon: Truck, label: 'Fornecedores', path: '/fornecedores' },
   { icon: Plane, label: 'Programas', path: '/programas' },
