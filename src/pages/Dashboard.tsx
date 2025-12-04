@@ -1,8 +1,8 @@
-import { useData } from '@/contexts/DataContext';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { StatCard } from '@/components/dashboard/StatCard';
-import { MilhasChart } from '@/components/dashboard/MilhasChart';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import {
   Plane,
   TrendingUp,
@@ -10,11 +10,82 @@ import {
   CreditCard,
   Receipt,
   Wallet,
+  AlertTriangle,
 } from 'lucide-react';
+import { 
+  useMilesBalance, 
+  useExpiringMiles, 
+  usePayableInstallments, 
+  useReceivableInstallments,
+  useTransactions 
+} from '@/hooks/useSupabaseData';
+import { formatCPM } from '@/lib/installmentCalculator';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+
+const COLORS = ['hsl(var(--primary))', 'hsl(var(--success))', 'hsl(var(--warning))', 'hsl(var(--destructive))', 'hsl(var(--secondary))'];
 
 const Dashboard = () => {
-  const { getDashboardStats } = useData();
-  const stats = getDashboardStats();
+  const { data: milesBalance, isLoading: loadingBalance } = useMilesBalance();
+  const { data: expiringMiles } = useExpiringMiles();
+  const { data: payableInstallments } = usePayableInstallments();
+  const { data: receivableInstallments } = useReceivableInstallments();
+  const { data: transactions } = useTransactions();
+
+  // Calculate totals
+  const totalMiles = milesBalance?.reduce((acc, item) => acc + (item.balance || 0), 0) || 0;
+  const totalInvested = milesBalance?.reduce((acc, item) => acc + (item.total_invested || 0), 0) || 0;
+  const avgCpmGlobal = totalMiles > 0 ? (totalInvested / totalMiles) * 1000 : 0;
+
+  const pendingPayables = payableInstallments
+    ?.filter(i => i.status === 'pendente')
+    .reduce((acc, i) => acc + Number(i.amount), 0) || 0;
+
+  const pendingReceivables = receivableInstallments
+    ?.filter(i => i.status === 'pendente')
+    .reduce((acc, i) => acc + Number(i.amount), 0) || 0;
+
+  // Calculate profit from transactions
+  const totalPurchases = transactions
+    ?.filter(t => t.type === 'COMPRA')
+    .reduce((acc, t) => acc + (t.total_cost || 0), 0) || 0;
+
+  const totalSales = transactions
+    ?.filter(t => t.type === 'VENDA')
+    .reduce((acc, t) => acc + (t.sale_price || 0), 0) || 0;
+
+  const profit = totalSales - totalPurchases;
+
+  // Prepare chart data - CPM by program
+  const cpmByProgram = milesBalance?.reduce((acc, item) => {
+    if (!item.program_name) return acc;
+    
+    const existing = acc.find(a => a.name === item.program_name);
+    if (existing) {
+      existing.balance += item.balance || 0;
+      existing.invested += item.total_invested || 0;
+    } else {
+      acc.push({
+        name: item.program_name,
+        balance: item.balance || 0,
+        invested: item.total_invested || 0,
+        cpm: 0,
+      });
+    }
+    return acc;
+  }, [] as { name: string; balance: number; invested: number; cpm: number }[]) || [];
+
+  cpmByProgram.forEach(item => {
+    item.cpm = item.balance > 0 ? (item.invested / item.balance) * 1000 : 0;
+  });
+
+  // Pie chart data for miles distribution
+  const milesDistribution = cpmByProgram.map((item, index) => ({
+    name: item.name,
+    value: item.balance,
+    color: COLORS[index % COLORS.length],
+  }));
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -27,6 +98,16 @@ const Dashboard = () => {
     return new Intl.NumberFormat('pt-BR').format(value);
   };
 
+  if (loadingBalance) {
+    return (
+      <MainLayout>
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
+      </MainLayout>
+    );
+  }
+
   return (
     <MainLayout>
       <PageHeader
@@ -38,58 +119,222 @@ const Dashboard = () => {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-8">
         <StatCard
           title="Estoque de Milhas"
-          value={formatNumber(stats.totalMilhasEstoque)}
+          value={formatNumber(totalMiles)}
           subtitle="Total disponível"
           icon={Plane}
           variant="default"
         />
         <StatCard
-          title="Total em Compras"
-          value={formatCurrency(stats.totalCompras)}
-          subtitle="Valor investido"
+          title="CPM Médio Global"
+          value={formatCPM(avgCpmGlobal)}
+          subtitle="Custo por milheiro"
           icon={TrendingDown}
           variant="destructive"
         />
         <StatCard
-          title="Total em Vendas"
-          value={formatCurrency(stats.totalVendas)}
-          subtitle="Valor recebido"
-          icon={TrendingUp}
-          variant="success"
+          title="Lucro Total"
+          value={formatCurrency(profit)}
+          subtitle={profit >= 0 ? 'Resultado positivo' : 'Resultado negativo'}
+          icon={profit >= 0 ? TrendingUp : TrendingDown}
+          variant={profit >= 0 ? 'success' : 'destructive'}
         />
         <StatCard
-          title="Lucro Total"
-          value={formatCurrency(stats.lucroTotal)}
-          subtitle={stats.lucroTotal >= 0 ? 'Resultado positivo' : 'Resultado negativo'}
+          title="Total Investido"
+          value={formatCurrency(totalInvested)}
+          subtitle="Em milhas"
           icon={Wallet}
-          variant={stats.lucroTotal >= 0 ? 'success' : 'destructive'}
+          variant="default"
         />
         <StatCard
           title="Contas a Pagar"
-          value={formatCurrency(stats.contasPagarPendentes)}
+          value={formatCurrency(pendingPayables)}
           subtitle="Pendentes"
           icon={CreditCard}
           variant="warning"
         />
         <StatCard
           title="Contas a Receber"
-          value={formatCurrency(stats.contasReceberPendentes)}
+          value={formatCurrency(pendingReceivables)}
           subtitle="Pendentes"
           icon={Receipt}
           variant="default"
         />
       </div>
 
+      {/* Expiring Miles Alert */}
+      {expiringMiles && expiringMiles.length > 0 && (
+        <Card className="mb-8 border-warning/50 bg-warning/5">
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2 text-warning">
+              <AlertTriangle className="h-5 w-5" />
+              Milhas a Vencer (próximos 30 dias)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {expiringMiles.slice(0, 6).map((item) => (
+                <div
+                  key={item.id}
+                  className="flex justify-between items-center p-3 rounded-lg bg-background border"
+                >
+                  <div>
+                    <span className="font-medium">{item.program_name}</span>
+                    <div className="text-xs text-muted-foreground">{item.account_name}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-bold">{item.quantity?.toLocaleString('pt-BR')}</div>
+                    <div className="text-xs text-warning">
+                      {item.days_until_expiration} dias
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Charts */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <MilhasChart
-          data={stats.milhasPorPrograma.map(p => ({ nome: p.programa, quantidade: p.quantidade }))}
-          title="Milhas por Programa"
-        />
-        <MilhasChart
-          data={stats.milhasPorConta.map(c => ({ nome: c.conta, quantidade: c.quantidade }))}
-          title="Milhas por Conta"
-        />
+        {/* CPM by Program */}
+        <Card>
+          <CardHeader>
+            <CardTitle>CPM por Programa</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {cpmByProgram.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={cpmByProgram}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" />
+                  <YAxis stroke="hsl(var(--muted-foreground))" />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--card))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px',
+                    }}
+                    formatter={(value: number) => [formatCPM(value), 'CPM']}
+                  />
+                  <Bar dataKey="cpm" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                Sem dados para exibir
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Miles Distribution */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Distribuição de Milhas</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {milesDistribution.length > 0 ? (
+              <div className="flex items-center gap-4">
+                <ResponsiveContainer width="60%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={milesDistribution}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={100}
+                      paddingAngle={5}
+                      dataKey="value"
+                    >
+                      {milesDistribution.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'hsl(var(--card))',
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: '8px',
+                      }}
+                      formatter={(value: number) => [formatNumber(value), 'Milhas']}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="flex-1 space-y-2">
+                  {milesDistribution.map((item, index) => (
+                    <div key={item.name} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="w-3 h-3 rounded-full"
+                          style={{ backgroundColor: item.color }}
+                        />
+                        <span className="text-sm">{item.name}</span>
+                      </div>
+                      <span className="font-medium text-sm">
+                        {formatNumber(item.value)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                Sem dados para exibir
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* CPM Details Table */}
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Detalhes por Programa</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {cpmByProgram.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-3 px-4 font-medium">Programa</th>
+                      <th className="text-right py-3 px-4 font-medium">Saldo</th>
+                      <th className="text-right py-3 px-4 font-medium">Investido</th>
+                      <th className="text-right py-3 px-4 font-medium">CPM</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cpmByProgram.map((item) => (
+                      <tr key={item.name} className="border-b last:border-0">
+                        <td className="py-3 px-4">
+                          <Badge variant="secondary">{item.name}</Badge>
+                        </td>
+                        <td className="text-right py-3 px-4 font-medium">
+                          {formatNumber(item.balance)}
+                        </td>
+                        <td className="text-right py-3 px-4">
+                          {formatCurrency(item.invested)}
+                        </td>
+                        <td className="text-right py-3 px-4 font-bold text-primary">
+                          {formatCPM(item.cpm)}
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="bg-muted/50 font-bold">
+                      <td className="py-3 px-4">Total</td>
+                      <td className="text-right py-3 px-4">{formatNumber(totalMiles)}</td>
+                      <td className="text-right py-3 px-4">{formatCurrency(totalInvested)}</td>
+                      <td className="text-right py-3 px-4 text-primary">{formatCPM(avgCpmGlobal)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="py-12 text-center text-muted-foreground">
+                Sem dados para exibir. Registre compras para ver o CPM por programa.
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </MainLayout>
   );
