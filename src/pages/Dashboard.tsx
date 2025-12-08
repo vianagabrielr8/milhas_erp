@@ -19,7 +19,7 @@ import {
   useReceivableInstallments,
   useTransactions 
 } from '@/hooks/useSupabaseData';
-import { formatCPM } from '@/lib/installmentCalculator';
+import { formatCPM } from '@/utils/financeLogic';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';

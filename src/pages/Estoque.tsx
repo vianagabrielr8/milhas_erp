@@ -1,10 +1,20 @@
+import { useState, useMemo } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { useMilesBalance, useExpiringMiles, usePrograms } from '@/hooks/useSupabaseData';
-import { formatCPM } from '@/lib/installmentCalculator';
-import { Plane, AlertTriangle, TrendingUp, Wallet } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { useMilesBalance, useExpiringMiles, usePrograms, useAccounts } from '@/hooks/useSupabaseData';
+import { formatCPM, formatCurrency, formatNumber } from '@/utils/financeLogic';
+import { TransactionModal } from '@/components/transactions/TransactionModal';
+import { Plane, AlertTriangle, TrendingUp, Wallet, Plus, Filter } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -12,33 +22,54 @@ const Estoque = () => {
   const { data: milesBalance, isLoading: loadingBalance } = useMilesBalance();
   const { data: expiringMiles, isLoading: loadingExpiring } = useExpiringMiles();
   const { data: programs } = usePrograms();
+  const { data: accounts } = useAccounts();
+  
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [accountFilter, setAccountFilter] = useState<string>('all');
+
+  // Filter balance by account
+  const filteredBalance = useMemo(() => {
+    if (!milesBalance) return [];
+    if (accountFilter === 'all') return milesBalance;
+    return milesBalance.filter(item => item.account_id === accountFilter);
+  }, [milesBalance, accountFilter]);
+
+  // Filter expiring miles by account
+  const filteredExpiringMiles = useMemo(() => {
+    if (!expiringMiles) return [];
+    if (accountFilter === 'all') return expiringMiles;
+    const accountName = accounts?.find(a => a.id === accountFilter)?.name;
+    return expiringMiles.filter(item => item.account_name === accountName);
+  }, [expiringMiles, accountFilter, accounts]);
 
   // Group balance by program
-  const balanceByProgram = milesBalance?.reduce((acc, item) => {
-    if (!item.program_name) return acc;
-    
-    if (!acc[item.program_name]) {
-      acc[item.program_name] = {
-        totalBalance: 0,
-        totalInvested: 0,
-        accounts: [],
-      };
-    }
-    
-    acc[item.program_name].totalBalance += item.balance || 0;
-    acc[item.program_name].totalInvested += item.total_invested || 0;
-    acc[item.program_name].accounts.push({
-      name: item.account_name || '',
-      balance: item.balance || 0,
-      avgCpm: item.avg_cpm || 0,
-      invested: item.total_invested || 0,
-    });
-    
-    return acc;
-  }, {} as Record<string, { totalBalance: number; totalInvested: number; accounts: { name: string; balance: number; avgCpm: number; invested: number }[] }>);
+  const balanceByProgram = useMemo(() => {
+    return filteredBalance.reduce((acc, item) => {
+      if (!item.program_name) return acc;
+      
+      if (!acc[item.program_name]) {
+        acc[item.program_name] = {
+          totalBalance: 0,
+          totalInvested: 0,
+          accounts: [],
+        };
+      }
+      
+      acc[item.program_name].totalBalance += item.balance || 0;
+      acc[item.program_name].totalInvested += item.total_invested || 0;
+      acc[item.program_name].accounts.push({
+        name: item.account_name || '',
+        balance: item.balance || 0,
+        avgCpm: item.avg_cpm || 0,
+        invested: item.total_invested || 0,
+      });
+      
+      return acc;
+    }, {} as Record<string, { totalBalance: number; totalInvested: number; accounts: { name: string; balance: number; avgCpm: number; invested: number }[] }>);
+  }, [filteredBalance]);
 
-  const totalMiles = milesBalance?.reduce((acc, item) => acc + (item.balance || 0), 0) || 0;
-  const totalInvested = milesBalance?.reduce((acc, item) => acc + (item.total_invested || 0), 0) || 0;
+  const totalMiles = filteredBalance.reduce((acc, item) => acc + (item.balance || 0), 0);
+  const totalInvested = filteredBalance.reduce((acc, item) => acc + (item.total_invested || 0), 0);
   const avgCpmGlobal = totalMiles > 0 ? (totalInvested / totalMiles) * 1000 : 0;
 
   if (loadingBalance || loadingExpiring) {
@@ -56,7 +87,32 @@ const Estoque = () => {
       <PageHeader
         title="Estoque de Milhas"
         description="Visualize seu saldo de milhas por programa e conta"
+        action={
+          <Button onClick={() => setIsModalOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Nova Transação
+          </Button>
+        }
       />
+
+      {/* Account Filter */}
+      <div className="flex items-center gap-2 mb-6">
+        <Filter className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">Filtrar por conta:</span>
+        <Select value={accountFilter} onValueChange={setAccountFilter}>
+          <SelectTrigger className="w-[200px]">
+            <SelectValue placeholder="Todas as contas" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todas as contas</SelectItem>
+            {accounts?.map(acc => (
+              <SelectItem key={acc.id} value={acc.id}>
+                {acc.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
       {/* Summary Cards */}
       <div className="grid gap-4 md:grid-cols-3 mb-8">
@@ -69,7 +125,7 @@ const Estoque = () => {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">
-              {totalMiles.toLocaleString('pt-BR')}
+              {formatNumber(totalMiles)}
             </div>
             <p className="text-sm text-muted-foreground">milhas disponíveis</p>
           </CardContent>
@@ -84,7 +140,7 @@ const Estoque = () => {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">
-              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalInvested)}
+              {formatCurrency(totalInvested)}
             </div>
             <p className="text-sm text-muted-foreground">valor em milhas</p>
           </CardContent>
@@ -107,7 +163,7 @@ const Estoque = () => {
       </div>
 
       {/* Expiring Miles Alert */}
-      {expiringMiles && expiringMiles.length > 0 && (
+      {filteredExpiringMiles.length > 0 && (
         <Card className="mb-8 border-warning/50 bg-warning/5">
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2 text-warning">
@@ -117,7 +173,7 @@ const Estoque = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {expiringMiles.map((item) => (
+              {filteredExpiringMiles.map((item) => (
                 <div
                   key={item.id}
                   className="flex justify-between items-center p-3 rounded-lg bg-background border"
@@ -127,7 +183,7 @@ const Estoque = () => {
                     <span className="text-muted-foreground"> - {item.account_name}</span>
                   </div>
                   <div className="text-right">
-                    <div className="font-bold">{item.quantity?.toLocaleString('pt-BR')} milhas</div>
+                    <div className="font-bold">{formatNumber(item.quantity || 0)} milhas</div>
                     <div className="text-sm text-warning">
                       {item.expiration_date && format(new Date(item.expiration_date), 'dd/MM/yyyy', { locale: ptBR })}
                       <span className="ml-1">({item.days_until_expiration} dias)</span>
@@ -142,8 +198,7 @@ const Estoque = () => {
 
       {/* Balance by Program */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {balanceByProgram && Object.entries(balanceByProgram).map(([programName, data]) => {
-          const program = programs?.find(p => p.name === programName);
+        {Object.entries(balanceByProgram).map(([programName, data]) => {
           const programCpm = data.totalBalance > 0 ? (data.totalInvested / data.totalBalance) * 1000 : 0;
           
           return (
@@ -161,13 +216,13 @@ const Estoque = () => {
                   <div className="flex justify-between items-center">
                     <span className="text-muted-foreground">Total:</span>
                     <span className="text-2xl font-bold">
-                      {data.totalBalance.toLocaleString('pt-BR')}
+                      {formatNumber(data.totalBalance)}
                     </span>
                   </div>
                   <div className="flex justify-between items-center mt-1">
                     <span className="text-muted-foreground">Investido:</span>
                     <span className="font-medium">
-                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(data.totalInvested)}
+                      {formatCurrency(data.totalInvested)}
                     </span>
                   </div>
                 </div>
@@ -186,10 +241,10 @@ const Estoque = () => {
                       </div>
                       <div className="text-right">
                         <div className="font-bold">
-                          {account.balance.toLocaleString('pt-BR')}
+                          {formatNumber(account.balance)}
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(account.invested)}
+                          {formatCurrency(account.invested)}
                         </div>
                       </div>
                     </div>
@@ -201,13 +256,15 @@ const Estoque = () => {
         })}
       </div>
 
-      {(!balanceByProgram || Object.keys(balanceByProgram).length === 0) && (
+      {Object.keys(balanceByProgram).length === 0 && (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
             Nenhuma milha em estoque. Registre uma compra para começar.
           </CardContent>
         </Card>
       )}
+
+      <TransactionModal open={isModalOpen} onOpenChange={setIsModalOpen} />
     </MainLayout>
   );
 };
