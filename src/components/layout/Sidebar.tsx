@@ -1,12 +1,12 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
 import {
   LayoutDashboard,
   ShoppingCart,
   DollarSign,
   Users,
   Truck,
-  CreditCard,
   Receipt,
   Plane,
   UserCircle,
@@ -14,6 +14,7 @@ import {
   Menu,
   Package,
   Wallet,
+  LogOut,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
@@ -33,6 +34,12 @@ const menuItems = [
 
 export const Sidebar = () => {
   const [collapsed, setCollapsed] = useState(false);
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    navigate("/login");
+  };
 
   return (
     <aside
@@ -58,14 +65,14 @@ export const Sidebar = () => {
             variant="ghost"
             size="icon"
             onClick={() => setCollapsed(!collapsed)}
-            className="text-sidebar-foreground hover:bg-sidebar-accent"
+            className="text-sidebar-foreground hover:bg-sidebar-accent ml-auto"
           >
             {collapsed ? <Menu className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
           </Button>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 space-y-1 p-2">
+        <nav className="flex-1 space-y-1 p-2 overflow-y-auto scrollbar-hide">
           {menuItems.map((item) => (
             <NavLink
               key={item.path}
@@ -86,14 +93,20 @@ export const Sidebar = () => {
           ))}
         </nav>
 
-        {/* Footer */}
-        {!collapsed && (
-          <div className="border-t border-sidebar-border p-4">
-            <p className="text-xs text-muted-foreground text-center">
-              © 2024 MilhasERP
-            </p>
-          </div>
-        )}
+        {/* Footer com Logout */}
+        <div className="border-t border-sidebar-border p-2">
+          <button
+            onClick={handleLogout}
+            className={cn(
+              'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200 text-red-500 hover:bg-red-500/10 hover:text-red-600',
+              collapsed ? 'justify-center' : ''
+            )}
+            title="Sair da Conta"
+          >
+            <LogOut className="h-5 w-5 flex-shrink-0" />
+            {!collapsed && <span>Sair da Conta</span>}
+          </button>
+        </div>
       </div>
     </aside>
   );
