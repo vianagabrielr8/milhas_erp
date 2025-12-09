@@ -26,7 +26,7 @@ import {
   useCreateReceivable,
   useCreateReceivableInstallments,
 } from '@/hooks/useSupabaseData';
-import { generateInstallments, calculateCPM, formatCPM } from '@/utils/financeLogic';
+import { calculateReceivableInstallmentDates, calculateCPM, formatCPM } from '@/utils/financeLogic';
 import { ArrowLeft, Calculator, TrendingUp, Wallet } from 'lucide-react';
 
 const NovaVenda = () => {

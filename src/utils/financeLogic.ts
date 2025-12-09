@@ -102,6 +102,31 @@ export function generateReceivableInstallments(
 }
 
 /**
+ * Calculate installment dates for payables based on credit card billing cycle
+ */
+export function calculateInstallmentDates(
+  totalValue: number,
+  installmentCount: number,
+  purchaseDate: Date,
+  creditCard: CreditCard
+): Installment[] {
+  const firstDueDate = calculateCardDates(purchaseDate, creditCard.closing_day, creditCard.due_day);
+  return generateInstallments(totalValue, installmentCount, firstDueDate);
+}
+
+/**
+ * Calculate receivable installment dates starting from transaction date + 30 days
+ */
+export function calculateReceivableInstallmentDates(
+  totalValue: number,
+  installmentCount: number,
+  transactionDate: Date
+): Installment[] {
+  const firstReceiveDate = addDays(transactionDate, 30);
+  return generateInstallments(totalValue, installmentCount, firstReceiveDate);
+}
+
+/**
  * Format CPM (Cost Per Thousand Miles)
  */
 export function formatCPM(value: number | null | undefined): string {
