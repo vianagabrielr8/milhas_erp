@@ -15,9 +15,10 @@ import {
   Package,
   Wallet,
   LogOut,
+  User,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 const menuItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
@@ -34,7 +35,24 @@ const menuItems = [
 
 export const Sidebar = () => {
   const [collapsed, setCollapsed] = useState(false);
+  // Estado para guardar os dados do usuário
+  const [userInfo, setUserInfo] = useState<{ name: string; email: string; avatar: string | null } | null>(null);
   const navigate = useNavigate();
+
+  // Busca os dados do usuário assim que o menu carrega
+  useEffect(() => {
+    const getUserData = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setUserInfo({
+          name: user.user_metadata.full_name || user.user_metadata.name || 'Usuário',
+          email: user.email || '',
+          avatar: user.user_metadata.avatar_url || null, // Pega a foto do Google
+        });
+      }
+    };
+    getUserData();
+  }, []);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -86,6 +104,7 @@ export const Sidebar = () => {
                     : 'text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground'
                 )
               }
+              title={collapsed ? item.label : undefined}
             >
               <item.icon className="h-5 w-5 flex-shrink-0" />
               {!collapsed && <span>{item.label}</span>}
@@ -93,17 +112,53 @@ export const Sidebar = () => {
           ))}
         </nav>
 
-        {/* Footer com Logout */}
-        <div className="border-t border-sidebar-border p-2">
+        {/* Footer com Perfil + Logout */}
+        <div className="border-t border-sidebar-border p-4 bg-sidebar-accent/10">
+          
+          {/* Seção do Usuário */}
+          {userInfo && (
+            <div className={cn("flex items-center gap-3 mb-4", collapsed ? "justify-center" : "")}>
+              {/* Avatar ou Ícone Padrão */}
+              <div className="relative flex-shrink-0">
+                {userInfo.avatar ? (
+                  <img 
+                    src={userInfo.avatar} 
+                    alt="Avatar" 
+                    className="h-9 w-9 rounded-full border border-sidebar-border object-cover" 
+                  />
+                ) : (
+                  <div className="h-9 w-9 rounded-full bg-sidebar-accent flex items-center justify-center border border-sidebar-border">
+                    <User className="h-5 w-5 text-sidebar-foreground" />
+                  </div>
+                )}
+                {/* Bolinha verde de Online */}
+                <div className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-sidebar" />
+              </div>
+
+              {/* Nome e Email (Escondido se menu fechado) */}
+              {!collapsed && (
+                <div className="flex flex-col overflow-hidden">
+                  <span className="text-sm font-medium text-sidebar-foreground truncate" title={userInfo.name}>
+                    {userInfo.name.split(' ')[0]} {/* Mostra só o primeiro nome */}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground truncate" title={userInfo.email}>
+                    {userInfo.email}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Botão de Sair */}
           <button
             onClick={handleLogout}
             className={cn(
-              'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200 text-red-500 hover:bg-red-500/10 hover:text-red-600',
+              'flex w-full items-center gap-3 rounded-lg px-3 py-2 text-xs font-medium transition-all duration-200 text-red-400 hover:bg-red-500/10 hover:text-red-500',
               collapsed ? 'justify-center' : ''
             )}
             title="Sair da Conta"
           >
-            <LogOut className="h-5 w-5 flex-shrink-0" />
+            <LogOut className="h-4 w-4 flex-shrink-0" />
             {!collapsed && <span>Sair da Conta</span>}
           </button>
         </div>
