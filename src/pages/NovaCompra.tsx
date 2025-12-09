@@ -26,7 +26,7 @@ import {
   useCreatePayable,
   useCreatePayableInstallments,
 } from '@/hooks/useSupabaseData';
-import { generateInstallments, calculateCardDates, calculateCPM, formatCPM } from '@/utils/financeLogic';
+import { calculateInstallmentDates, calculateCPM, formatCPM } from '@/utils/financeLogic';
 import { ArrowLeft, Calculator } from 'lucide-react';
 
 const NovaCompra = () => {
