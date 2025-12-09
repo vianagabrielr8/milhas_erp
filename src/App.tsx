@@ -16,16 +16,17 @@ import Estoque from "./pages/Estoque";
 import CartoesPagamento from "./pages/CartoesPagamento";
 import NotFound from "./pages/NotFound";
 
-// Em src/App.tsx
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 1000 * 60 * 5, // IMPORTANTE: Dados valem por 5 minutos
-      gcTime: 1000 * 60 * 10,   // Mantém no lixo por 10 min
-      refetchOnWindowFocus: false, // Não recarrega se você só trocar de janela (Alt+Tab)
+      staleTime: 1000 * 60 * 5, // <--- O SEGREDO: Guarda os dados por 5 minutos
+      gcTime: 1000 * 60 * 10,
+      retry: false,
+      refetchOnWindowFocus: false,
     },
   },
 });
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <DataProvider>
