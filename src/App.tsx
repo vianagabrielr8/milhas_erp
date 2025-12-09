@@ -16,7 +16,15 @@ import Estoque from "./pages/Estoque";
 import CartoesPagamento from "./pages/CartoesPagamento";
 import NotFound from "./pages/NotFound";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 5, // Mantém os dados "frescos" por 5 minutos
+      gcTime: 1000 * 60 * 10, // Mantém no lixo/memória por 10 minutos
+      refetchOnWindowFocus: false, // Não recarrega só porque você clicou na janela
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
