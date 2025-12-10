@@ -11,79 +11,111 @@ import {
   SelectTrigger, 
   SelectValue 
 } from '@/components/ui/select';
-import { AlertTriangle, CheckCircle2, Ban, Filter, Plane } from 'lucide-react';
-import { subYears } from 'date-fns';
+import { AlertTriangle, CheckCircle2, Ban, Filter, Plane, CalendarDays, RotateCcw } from 'lucide-react';
+import { subYears, startOfYear, isAfter } from 'date-fns';
 
 const Limites = () => {
   const { contas, programas, vendas } = useData();
 
-  // Estados para os filtros
   const [filtroConta, setFiltroConta] = useState("all");
   const [filtroCia, setFiltroCia] = useState("all");
 
-  // Lista de palavras-chave para identificar quem é Cia Aérea
-  // Se você tiver outro programa aéreo (ex: Iberia), adicione aqui
   const ciasAereasKeywords = ['latam', 'smiles', 'azul', 'tap', 'aadvantage', 'iberia', 'qatar'];
 
-  // 1. Filtrar apenas os programas que são Cias Aéreas
+  // 1. Identificar Cias Aéreas
   const programasAereos = useMemo(() => {
     return programas.filter(p => {
       const nome = p.nome.toLowerCase();
-      // Retorna true se o nome do programa tiver alguma das palavras da lista
       return ciasAereasKeywords.some(keyword => nome.includes(keyword));
     });
   }, [programas]);
 
-  // 2. Lógica Principal: Calcular uso por Conta + Cia Aérea
+  // 2. Lógica Inteligente de Datas por Cia
+  const getRegraCia = (nomePrograma: string) => {
+    const nome = nomePrograma.toLowerCase();
+    
+    if (nome.includes('smiles') || nome.includes('tap')) {
+      return {
+        tipo: 'ANO_CIVIL',
+        dataCorte: startOfYear(new Date()), // 01 de Janeiro deste ano
+        texto: 'Renova em 01/Jan'
+      };
+    }
+    
+    if (nome.includes('azul')) {
+      return {
+        tipo: 'LISTA_FIXA',
+        dataCorte: subYears(new Date(), 2), // Azul é lista fixa, olhamos histórico longo
+        texto: 'Lista Fixa (5 vagas)'
+      };
+    }
+
+    if (nome.includes('aadvantage')) {
+        return {
+          tipo: 'ILIMITADO',
+          dataCorte: startOfYear(new Date()),
+          texto: 'Sem limite oficial'
+        };
+    }
+
+    // Padrão LATAM (Janela Móvel de 1 ano)
+    return {
+      tipo: 'JANELA_MOVEL',
+      dataCorte: subYears(new Date(), 1), // Hoje - 1 ano
+      texto: 'Libera 1 ano após uso'
+    };
+  };
+
   const usoPorConta = useMemo(() => {
-    const umAnoAtras = subYears(new Date(), 1);
     const resultado: any[] = [];
 
-    // Filtra as contas com base na seleção
-    const contasFiltradas = filtroConta === "all" 
-      ? contas 
-      : contas.filter(c => c.id === filtroConta);
+    const contasFiltradas = filtroConta === "all" ? contas : contas.filter(c => c.id === filtroConta);
+    const programasFiltrados = filtroCia === "all" ? programasAereos : programasAereos.filter(p => p.id === filtroCia);
 
-    // Filtra os programas com base na seleção
-    const programasFiltrados = filtroCia === "all"
-      ? programasAereos
-      : programasAereos.filter(p => p.id === filtroCia);
-
-    // Loop Cruzado: Contas x Programas Aéreos
     contasFiltradas.forEach(conta => {
       programasFiltrados.filter(p => p.ativo).forEach(prog => {
         
-        // A. Pegar vendas dessa conta nessa Cia no último ano
+        const regra = getRegraCia(prog.nome);
+        
+        // Filtra vendas baseadas na REGRA DA CIA (A Mágica acontece aqui)
         const vendasRelevantes = vendas.filter(v => 
           v.contaId === conta.id && 
           v.programaId === prog.id &&
-          new Date(v.dataVenda) >= umAnoAtras &&
-          v.clienteId // Tem que ter cliente vinculado
+          v.clienteId &&
+          new Date(v.dataVenda) >= regra.dataCorte
         );
 
-        // B. Extrair CPFs ÚNICOS
         const clientesUnicos = new Set(vendasRelevantes.map(v => v.clienteId));
-        
         const usados = clientesUnicos.size;
-        // Limites Padrão (Fallback caso o banco esteja zerado)
+        
+        // Definição de Limites Específicos
         let limitePadrao = 25; 
         if (prog.nome.toLowerCase().includes('azul')) limitePadrao = 5;
+        if (prog.nome.toLowerCase().includes('tap')) limitePadrao = 10;
+        if (prog.nome.toLowerCase().includes('aadvantage')) limitePadrao = 999; // Visualmente ilimitado
         
+        // Usa o limite do banco se tiver, senão usa o padrão da regra
         const limite = prog.limite && prog.limite > 0 ? prog.limite : limitePadrao;
         const disponivel = limite - usados;
         
+        // Cálculo da porcentagem (com trava visual para AAdvantage)
+        let porcentagem = 0;
+        if (limite === 999) porcentagem = 0; // AA sempre parece livre
+        else porcentagem = Math.min((usados / limite) * 100, 100);
+
         resultado.push({
           contaNome: conta.nome,
           programaNome: prog.nome,
           usados,
           limite,
           disponivel,
-          porcentagem: Math.min((usados / limite) * 100, 100) // Trava em 100% visualmente
+          porcentagem,
+          regraTexto: regra.texto,
+          isIlimitado: limite === 999
         });
       });
     });
 
-    // Ordena: Quem está mais perto de estourar o limite aparece primeiro
     return resultado.sort((a, b) => b.porcentagem - a.porcentagem);
   }, [contas, programasAereos, vendas, filtroConta, filtroCia]);
 
@@ -91,10 +123,9 @@ const Limites = () => {
     <MainLayout>
       <PageHeader
         title="Limites de CPF"
-        description="Controle de emissões por CPF nas companhias aéreas (Janela de 12 meses)"
+        description="Monitoramento inteligente de cotas por Cia Aérea"
       />
 
-      {/* ÁREA DE FILTROS */}
       <div className="flex flex-col sm:flex-row gap-4 mb-6 bg-muted/20 p-4 rounded-lg border border-border/50">
         <div className="flex items-center gap-2 text-muted-foreground text-sm min-w-[80px]">
           <Filter className="h-4 w-4" />
@@ -102,7 +133,6 @@ const Limites = () => {
         </div>
         
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 flex-1">
-          {/* Filtro por Conta */}
           <div className="space-y-1">
             <label className="text-xs font-medium text-muted-foreground ml-1">Conta (Login)</label>
             <Select value={filtroConta} onValueChange={setFiltroConta}>
@@ -118,7 +148,6 @@ const Limites = () => {
             </Select>
           </div>
 
-          {/* Filtro por Cia Aérea */}
           <div className="space-y-1">
             <label className="text-xs font-medium text-muted-foreground ml-1">Cia Aérea</label>
             <Select value={filtroCia} onValueChange={setFiltroCia}>
@@ -136,12 +165,11 @@ const Limites = () => {
         </div>
       </div>
 
-      {/* GRID DE CARDS */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {usoPorConta.length > 0 ? (
           usoPorConta.map((item, index) => (
             <Card key={index} className={`transition-all hover:shadow-md ${
-              item.usados >= item.limite ? "border-destructive/50 bg-destructive/5" : "border-border/50"
+              !item.isIlimitado && item.usados >= item.limite ? "border-destructive/50 bg-destructive/5" : "border-border/50"
             }`}>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground flex justify-between items-center">
@@ -160,15 +188,22 @@ const Limites = () => {
                   <div>
                     <div className="text-4xl font-bold flex items-end gap-2 tracking-tight">
                       {item.usados}
-                      <span className="text-sm font-medium text-muted-foreground mb-1.5">/ {item.limite}</span>
+                      {!item.isIlimitado && (
+                        <span className="text-sm font-medium text-muted-foreground mb-1.5">/ {item.limite}</span>
+                      )}
                     </div>
-                    <p className={`text-xs font-medium mt-1 ${item.disponivel <= 0 ? 'text-destructive' : 'text-muted-foreground'}`}>
-                      {item.disponivel <= 0 ? 'Sem vagas disponíveis' : `${item.disponivel} vagas disponíveis`}
-                    </p>
+                    
+                    {/* Regra de Renovação */}
+                    <div className="flex items-center gap-1.5 mt-2 text-xs font-medium text-muted-foreground bg-muted/50 px-2 py-1 rounded w-fit">
+                      {item.regraTexto.includes('01/Jan') ? <CalendarDays className="h-3 w-3"/> : <RotateCcw className="h-3 w-3"/>}
+                      {item.regraTexto}
+                    </div>
                   </div>
                   
-                  {/* Ícone de Status Dinâmico */}
-                  {item.usados >= item.limite ? (
+                  {/* Ícones de Status */}
+                  {item.isIlimitado ? (
+                    <CheckCircle2 className="h-10 w-10 text-primary opacity-50" />
+                  ) : item.usados >= item.limite ? (
                     <Ban className="h-10 w-10 text-destructive opacity-80" />
                   ) : item.usados >= (item.limite * 0.8) ? (
                     <AlertTriangle className="h-10 w-10 text-warning opacity-80" />
@@ -177,30 +212,31 @@ const Limites = () => {
                   )}
                 </div>
 
-                <div className="space-y-1">
-                  <Progress 
-                    value={item.porcentagem} 
-                    className={`h-2.5 ${
-                      item.usados >= item.limite ? "bg-destructive/20" : "bg-secondary"
-                    }`}
-                    // Para customizar a cor da barra de progresso (indicator), 
-                    // geralmente é via classe CSS global ou prop específica dependendo da lib ui
-                  />
-                  <div className="flex justify-between text-[10px] text-muted-foreground font-medium uppercase tracking-wider">
-                    <span>0%</span>
-                    <span>50%</span>
-                    <span>100%</span>
+                {!item.isIlimitado && (
+                  <div className="space-y-1">
+                    <Progress 
+                      value={item.porcentagem} 
+                      className={`h-2.5 ${
+                        item.usados >= item.limite ? "bg-destructive/20" : "bg-secondary"
+                      }`}
+                    />
+                    <div className="flex justify-between text-[10px] text-muted-foreground font-medium uppercase tracking-wider">
+                      <span>0%</span>
+                      <span>{Math.round(item.limite / 2)}</span>
+                      <span>{item.limite}</span>
+                    </div>
                   </div>
-                </div>
+                )}
                 
-                {item.usados >= (item.limite * 0.8) && item.usados < item.limite && (
+                {/* Alertas */}
+                {!item.isIlimitado && item.usados >= (item.limite * 0.8) && item.usados < item.limite && (
                   <div className="mt-4 p-2 bg-warning/10 border border-warning/20 rounded text-xs text-warning font-medium flex gap-2 items-center">
                     <AlertTriangle className="h-3 w-3" />
                     Atenção: Limite próximo!
                   </div>
                 )}
                 
-                {item.usados >= item.limite && (
+                {!item.isIlimitado && item.usados >= item.limite && (
                   <div className="mt-4 p-2 bg-destructive/10 border border-destructive/20 rounded text-xs text-destructive font-bold flex gap-2 items-center">
                     <Ban className="h-3 w-3" />
                     LIMITE ATINGIDO!
