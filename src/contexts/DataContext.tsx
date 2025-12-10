@@ -58,13 +58,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  // Estados locais para UI (sincronizados com o banco)
+  // Estados locais para UI
   const [programas, setProgramas] = useState<Programa[]>([]);
   const [contas, setContas] = useState<Conta[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
-  const [compras, setCompras] = useState<Compra[]>([]); // Mapeado de 'transactions' (tipo buy)
-  const [vendas, setVendas] = useState<Venda[]>([]);   // Mapeado de 'transactions' (tipo sell)
+  const [compras, setCompras] = useState<Compra[]>([]); 
+  const [vendas, setVendas] = useState<Venda[]>([]);   
   const [contasPagar, setContasPagar] = useState<ContaPagar[]>([]);
   const [contasReceber, setContasReceber] = useState<ContaReceber[]>([]);
 
@@ -93,34 +93,44 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const fetchAllData = async () => {
     setLoading(true);
     try {
-      // Programas (Geralmente públicos ou compartilhados)
-      const { data: progData } = await supabase.from('programs').select('*');
-      if (progData) setProgramas(progData);
+      // --- CORREÇÃO AQUI: Mapeando Programas (Inglês do Banco -> Português do Site) ---
+      const { data: progData } = await supabase.from('programs').select('*').order('name');
+      if (progData) {
+        const programasFormatados = progData.map((p: any) => ({
+          id: p.id,
+          nome: p.name,             // Banco: name -> Site: nome
+          descricao: p.slug,        // Banco: slug -> Site: descricao (usando slug como desc)
+          ativo: p.active,          // Banco: active -> Site: ativo
+          createdAt: new Date(p.created_at)
+        }));
+        setProgramas(programasFormatados);
+      }
 
-      // Dados específicos do usuário
+      // Dados específicos do usuário (Accounts)
       const { data: accData } = await supabase.from('accounts').select('*');
       if (accData) setContas(accData);
 
+      // Clients
       const { data: cliData } = await supabase.from('clients').select('*');
       if (cliData) setClientes(cliData);
 
+      // Suppliers
       const { data: supData } = await supabase.from('suppliers').select('*');
       if (supData) setFornecedores(supData);
 
-      // Transações (Compras e Vendas ficam na mesma tabela 'transactions' geralmente)
-      // Aqui assumo que você tem um campo 'type' ou similar. Se não tiver, ajuste o filtro.
+      // Transactions (Separando Compras e Vendas pelo 'type')
       const { data: transData } = await supabase.from('transactions').select('*');
       if (transData) {
-         // Ajuste esta lógica conforme seu banco. Ex: type = 'COMPRA' ou 'VENDA'
-         // Se você não tem campo type, precisará criar ou usar tabelas separadas.
-         // Por enquanto vou carregar tudo em compras para não quebrar, mas precisamos ajustar isso.
+         // Filtra compras (type = 'buy') e vendas (type = 'sell')
          setCompras(transData.filter((t: any) => t.type === 'buy' || t.tipo === 'compra') as any);
          setVendas(transData.filter((t: any) => t.type === 'sell' || t.tipo === 'venda') as any);
       }
 
+      // Payables
       const { data: payData } = await supabase.from('payables').select('*');
       if (payData) setContasPagar(payData);
 
+      // Receivables
       const { data: recData } = await supabase.from('receivables').select('*');
       if (recData) setContasReceber(recData);
 
@@ -141,20 +151,27 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return session.user.id;
   };
 
-// Programas (Mapeando Inglês -> Português)
-      const { data: progData } = await supabase.from('programs').select('*');
-      if (progData) {
-        const programasFormatados = progData.map((p: any) => ({
-          id: p.id,
-          nome: p.name,             // O banco manda 'name', o site usa 'nome'
-          descricao: p.slug,        // Usamos o slug como descrição por enquanto
-          ativo: p.active,          // O banco manda 'active', o site usa 'ativo'
-          createdAt: new Date(p.created_at)
-        }));
-        setProgramas(programasFormatados);
-      }
+  // --- FUNÇÕES DE ESCRITA (Mantidas iguais) ---
 
-  // --- CONTAS (Accounts) ---
+  // Programas (Geralmente admin cria, mas deixei a função aqui)
+  const addPrograma = async (item: any) => {
+    // Se quiser permitir usuário criar programa, descomente o user_id se sua tabela exigir
+    const { data, error } = await supabase.from('programs').insert(item).select().single();
+    if (error) { toast.error('Erro ao criar programa'); return; }
+    // Mapeando a resposta de volta para o formato português
+    const novoPrograma = {
+        id: data.id,
+        nome: data.name,
+        descricao: data.slug,
+        ativo: data.active,
+        createdAt: new Date(data.created_at)
+    };
+    setProgramas(prev => [...prev, novoPrograma]);
+  };
+  const updatePrograma = async (id: string, item: any) => { /* Implementar se necessário */ };
+  const deletePrograma = async (id: string) => { /* Implementar se necessário */ };
+
+  // Contas
   const addConta = async (item: any) => {
     try {
       const userId = checkUser();
@@ -181,7 +198,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } catch (e) { toast.error('Erro ao remover.'); }
   };
 
-  // --- CLIENTES ---
+  // Clientes
   const addCliente = async (cliente: any) => {
     try {
       const userId = checkUser();
@@ -211,7 +228,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } catch (e) { toast.error('Erro ao excluir.'); }
   };
 
-  // --- FORNECEDORES ---
+  // Fornecedores
   const addFornecedor = async (item: any) => {
     try {
       const userId = checkUser();
@@ -236,11 +253,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } catch (e) { toast.error('Erro ao remover.'); }
   };
 
-  // --- COMPRAS (Transactions type='buy') ---
+  // Compras (Transactions type='buy')
   const addCompra = async (item: any) => {
     try {
       const userId = checkUser();
-      // Ajuste: 'transactions' deve ter um campo para diferenciar compra de venda
       const payload = { ...item, user_id: userId, type: 'buy' }; 
       
       const { data, error } = await supabase.from('transactions').insert(payload).select().single();
@@ -249,10 +265,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setCompras(prev => [...prev, data]);
       toast.success('Compra registrada!');
 
-      // Se gerou conta a pagar
       if (item.status === 'pendente') {
          const contaPagar = {
-            compraId: data.id, // Assumindo link
+            compraId: data.id, 
             descricao: `Compra de ${item.quantidade} milhas`,
             valor: item.valorTotal,
             dataVencimento: item.dataCompra,
@@ -260,17 +275,15 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             user_id: userId
          };
          await supabase.from('payables').insert(contaPagar);
-         // Recarregar payables idealmente, ou adicionar ao state manual
          const { data: payData } = await supabase.from('payables').select('*').order('created_at', {ascending: false}).limit(1);
          if(payData) setContasPagar(prev => [...prev, payData[0]]);
       }
-
     } catch (e) { toast.error('Erro ao registrar compra.'); }
   };
-  const updateCompra = async (id: string, item: any) => { /* Implementar update em transactions */ };
-  const deleteCompra = async (id: string) => { /* Implementar delete */ };
+  const updateCompra = async (id: string, item: any) => { /* Implementar */ };
+  const deleteCompra = async (id: string) => { /* Implementar */ };
 
-  // --- VENDAS (Transactions type='sell') ---
+  // Vendas (Transactions type='sell')
   const addVenda = async (item: any) => {
     try {
       const userId = checkUser();
@@ -282,7 +295,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setVendas(prev => [...prev, data]);
       toast.success('Venda registrada!');
 
-      // Se gerou conta a receber
       if (item.status === 'pendente') {
          const contaReceber = {
             vendaId: data.id,
@@ -301,36 +313,30 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateVenda = async (id: string, item: any) => { /* Implementar */ };
   const deleteVenda = async (id: string) => { /* Implementar */ };
 
-  // --- CONTAS A PAGAR / RECEBER ---
-  const addContaPagar = async (item: any) => { /* Similar aos anteriores usando tabela 'payables' */ };
-  const updateContaPagar = async (id: string, item: any) => { /* Similar usando 'payables' */ };
-  const deleteContaPagar = async (id: string) => { /* Similar usando 'payables' */ };
+  // Contas a Pagar / Receber
+  const addContaPagar = async (item: any) => { /* Implementar */ };
+  const updateContaPagar = async (id: string, item: any) => { /* Implementar */ };
+  const deleteContaPagar = async (id: string) => { /* Implementar */ };
+  const addContaReceber = async (item: any) => { /* Implementar */ };
+  const updateContaReceber = async (id: string, item: any) => { /* Implementar */ };
+  const deleteContaReceber = async (id: string) => { /* Implementar */ };
 
-  const addContaReceber = async (item: any) => { /* Similar usando 'receivables' */ };
-  const updateContaReceber = async (id: string, item: any) => { /* Similar usando 'receivables' */ };
-  const deleteContaReceber = async (id: string) => { /* Similar usando 'receivables' */ };
-
-  // Dashboard Stats (Cálculo no Frontend com dados do Banco)
+  // Dashboard Stats
   const getDashboardStats = (): DashboardStats => {
-    const comprasPagas = compras.filter(c => c.status === 'pago');
-    const vendasRecebidas = vendas.filter(v => v.status === 'recebido');
-    
     const totalCompras = compras.reduce((acc, c) => acc + (c.valorTotal || 0), 0);
     const totalVendas = vendas.reduce((acc, v) => acc + (v.valorTotal || 0), 0);
-    
     const milhasCompradas = compras.reduce((acc, c) => acc + (c.quantidade || 0), 0);
     const milhasVendidas = vendas.reduce((acc, v) => acc + (v.quantidade || 0), 0);
     
-    // ... restante da lógica de cálculo permanece igual ...
     return {
       totalMilhasEstoque: milhasCompradas - milhasVendidas,
       totalCompras,
       totalVendas,
       lucroTotal: totalVendas - totalCompras,
-      contasPagarPendentes: 0, // Calcular do state contasPagar
-      contasReceberPendentes: 0, // Calcular do state contasReceber
-      milhasPorPrograma: [], // Implementar map
-      milhasPorConta: [], // Implementar map
+      contasPagarPendentes: 0,
+      contasReceberPendentes: 0,
+      milhasPorPrograma: [],
+      milhasPorConta: [],
     };
   };
 
