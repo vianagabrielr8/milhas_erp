@@ -101,6 +101,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           nome: p.name,
           descricao: p.slug,
           ativo: p.active,
+          // ADICIONADO: Pega o limite do banco ou usa 25 como padrão
+          limite: p.cpf_limit || 25, 
           createdAt: new Date(p.created_at)
         }));
         setProgramas(programasFormatados);
