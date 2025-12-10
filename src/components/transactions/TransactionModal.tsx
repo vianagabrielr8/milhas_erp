@@ -203,20 +203,23 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
       const value = calculatedTotal;
       const qty = parseInt(quantity);
 
-      // Create the transaction
+// Create the transaction
       const transaction = await createTransaction.mutateAsync({
         account_id: accountId,
         program_id: programId,
         type: transactionType,
-        quantity: transactionType === 'VENDA' ? -qty : qty,
-        total_cost: transactionType === 'COMPRA' ? value : null,
+        quantity: transactionType === 'VENDA' || transactionType === 'USO' || transactionType === 'TRANSF_SAIDA' || transactionType === 'EXPIROU' ? -qty : qty,
+        
+        // CORREÇÃO: Aceitar custo também para Transferência Entrada e Bônus
+        total_cost: (transactionType === 'COMPRA' || transactionType === 'TRANSF_ENTRADA' || transactionType === 'BONUS') ? value : null,
+        
         sale_price: transactionType === 'VENDA' ? value : null,
         transaction_date: transactionDate,
         expiration_date: expirationDate || null,
         notes: notes || null,
         supplier_id: supplierId || null,
         client_id: clientId || null,
-        user_id: user.id // 3. CORREÇÃO: Enviando o ID do usuário (Obrigatório pelo RLS)
+        user_id: user.id
       });
 
       // Handle payables
