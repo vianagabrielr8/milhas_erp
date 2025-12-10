@@ -39,6 +39,10 @@ const Vendas = () => {
 
   const [isOpen, setIsOpen] = useState(false);
   const [editingVenda, setEditingVenda] = useState<Venda | null>(null);
+  
+  // NOVO: Estado para parcelas
+  const [parcelas, setParcelas] = useState(1);
+
   const [formData, setFormData] = useState({
     programaId: '',
     contaId: '',
@@ -62,6 +66,7 @@ const Vendas = () => {
       observacoes: '',
     });
     setEditingVenda(null);
+    setParcelas(1); // Reseta parcelas
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -87,7 +92,8 @@ const Vendas = () => {
       updateVenda(editingVenda.id, vendaData);
       toast.success('Venda atualizada com sucesso!');
     } else {
-      addVenda(vendaData);
+      // ATUALIZADO: Passando o número de parcelas para o contexto
+      addVenda(vendaData, parcelas);
       toast.success('Venda registrada com sucesso!');
     }
 
@@ -181,152 +187,3 @@ const Vendas = () => {
               <Button className="gradient-primary">
                 <Plus className="h-4 w-4 mr-2" />
                 Nova Venda
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-md">
-              <DialogHeader>
-                <DialogTitle>{editingVenda ? 'Editar Venda' : 'Nova Venda'}</DialogTitle>
-              </DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Programa</Label>
-                    <Select
-                      value={formData.programaId}
-                      onValueChange={(value) => setFormData({ ...formData, programaId: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {programas.filter(p => p.ativo).map((programa) => (
-                          <SelectItem key={programa.id} value={programa.id}>
-                            {programa.nome}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Conta</Label>
-                    <Select
-                      value={formData.contaId}
-                      onValueChange={(value) => setFormData({ ...formData, contaId: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {contas.filter(c => c.ativo).map((conta) => (
-                          <SelectItem key={conta.id} value={conta.id}>
-                            {conta.nome}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Cliente</Label>
-                  <Select
-                    value={formData.clienteId}
-                    onValueChange={(value) => setFormData({ ...formData, clienteId: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {clientes.filter(c => c.ativo).map((cliente) => (
-                        <SelectItem key={cliente.id} value={cliente.id}>
-                          {cliente.nome}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Quantidade de Milhas</Label>
-                    <Input
-                      type="number"
-                      value={formData.quantidade}
-                      onChange={(e) => setFormData({ ...formData, quantidade: e.target.value })}
-                      placeholder="10000"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Valor Unitário (R$/1000)</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={formData.valorUnitario}
-                      onChange={(e) => setFormData({ ...formData, valorUnitario: e.target.value })}
-                      placeholder="20.00"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Data da Venda</Label>
-                    <Input
-                      type="date"
-                      value={formData.dataVenda}
-                      onChange={(e) => setFormData({ ...formData, dataVenda: e.target.value })}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Status</Label>
-                    <Select
-                      value={formData.status}
-                      onValueChange={(value: 'pendente' | 'recebido') => setFormData({ ...formData, status: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="pendente">Pendente</SelectItem>
-                        <SelectItem value="recebido">Recebido</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Observações</Label>
-                  <Input
-                    value={formData.observacoes}
-                    onChange={(e) => setFormData({ ...formData, observacoes: e.target.value })}
-                    placeholder="Observações (opcional)"
-                  />
-                </div>
-
-                <div className="flex justify-end gap-2 pt-4">
-                  <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
-                    Cancelar
-                  </Button>
-                  <Button type="submit" className="gradient-primary">
-                    {editingVenda ? 'Salvar' : 'Registrar'}
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
-        }
-      />
-
-      <DataTable
-        data={vendas}
-        columns={columns}
-        emptyMessage="Nenhuma venda registrada. Clique em 'Nova Venda' para começar."
-      />
-    </MainLayout>
-  );
-};
-
-export default Vendas;
