@@ -37,7 +37,6 @@ interface DataContextType {
   updateCompra: (id: string, compra: Partial<Compra>) => Promise<void>;
   deleteCompra: (id: string) => Promise<void>;
   
-  // Atualizado para aceitar parcelas
   addVenda: (venda: Omit<Venda, 'id' | 'createdAt'>, parcelas?: number) => Promise<void>;
   updateVenda: (id: string, venda: Partial<Venda>) => Promise<void>;
   deleteVenda: (id: string) => Promise<void>;
@@ -93,7 +92,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const fetchAllData = async () => {
     setLoading(true);
     try {
-      // Programas (Mapeamento Name -> Nome)
+      // Programas (Mapeamento Name -> Nome + Limite)
       const { data: progData } = await supabase.from('programs').select('*').order('name');
       if (progData) {
         const programasFormatados = progData.map((p: any) => ({
@@ -101,8 +100,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           nome: p.name,
           descricao: p.slug,
           ativo: p.active,
-          // ADICIONADO: Pega o limite do banco ou usa 25 como padrão
-          limite: p.cpf_limit || 25, 
+          limite: p.cpf_limit || 25, // <--- ADICIONADO AQUI
           createdAt: new Date(p.created_at)
         }));
         setProgramas(programasFormatados);
@@ -111,11 +109,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Accounts (Contas CPF)
       const { data: accData } = await supabase.from('accounts').select('*');
       if (accData) {
-        // Mapear do banco (name/document) para o front (nome/cpf)
         const contasFormatadas = accData.map((c: any) => ({
             id: c.id,
-            nome: c.name, // Banco usa 'name'
-            cpf: c.document || c.cpf, // Banco pode usar 'document' ou 'cpf'
+            nome: c.name,
+            cpf: c.document || c.cpf,
             ativo: c.active !== undefined ? c.active : true,
             createdAt: new Date(c.created_at)
         }));
@@ -158,7 +155,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // --- PROGRAMAS ---
   const addPrograma = async (item: any) => {
-    // Assumindo criação global ou vinculada ao user se o RLS exigir
     const payload = { name: item.nome, slug: item.descricao, active: item.ativo };
     const { data, error } = await supabase.from('programs').insert(payload).select().single();
     if (error) { toast.error('Erro ao criar programa'); return; }
@@ -168,6 +164,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         nome: data.name,
         descricao: data.slug,
         ativo: data.active,
+        limite: data.cpf_limit || 25,
         createdAt: new Date(data.created_at)
     };
     setProgramas(prev => [...prev, novoPrograma]);
@@ -178,14 +175,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if(!error) setProgramas(prev => prev.filter(p => p.id !== id));
   };
 
-  // --- CONTAS (CORREÇÃO DO ERRO AO SALVAR) ---
+  // --- CONTAS ---
   const addConta = async (item: any) => {
     try {
       const userId = checkUser();
-      // O banco espera 'name' e 'document/cpf', mas o front manda 'nome' e 'cpf'
       const payload = {
           name: item.nome,
-          cpf: item.cpf, // Se no banco for 'document', mude para: document: item.cpf
+          cpf: item.cpf,
           active: true,
           user_id: userId
       };
@@ -247,21 +243,18 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateFornecedor = async (id: string, item: any) => { /* ... */ };
   const deleteFornecedor = async (id: string) => { /* ... */ };
 
-// --- COMPRAS (Transactions type='buy') ---
+  // --- COMPRAS ---
   const addCompra = async (item: any) => {
     try {
       const userId = checkUser();
       
-      // 1. TRADUÇÃO DOS CAMPOS (Front -> Banco)
-      // O banco usa snake_case (program_id), o site usa camelCase (programaId)
       const payload = {
         user_id: userId,
-        type: 'buy', // Define que é uma entrada/compra
-        program_id: item.programaId,  // <--- TRADUÇÃO NECESSÁRIA
-        account_id: item.contaId,     // <--- TRADUÇÃO NECESSÁRIA
-        // client_id: item.clienteId || null, // Descomente se sua tabela transactions tiver esse campo
+        type: 'buy',
+        program_id: item.programaId,  
+        account_id: item.contaId,     
         quantity: parseInt(item.quantidade),
-        amount: parseFloat(item.valorTotal), // O banco guarda o valor total
+        amount: parseFloat(item.valorTotal),
         date: item.dataCompra || new Date(),
         status: item.status || 'concluido',
         description: item.observacoes
@@ -277,7 +270,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setCompras(prev => [...prev, data]);
       toast.success('Transação registrada com sucesso!');
 
-      // Lógica de Contas a Pagar (se pendente)
       if (item.status === 'pendente') {
          const contaPagar = {
             user_id: userId,
@@ -285,11 +277,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             amount: parseFloat(item.valorTotal),
             due_date: item.dataCompra,
             status: 'pendente',
-            // transaction_id: data.id // Descomente se tiver essa coluna em payables
          };
          await supabase.from('payables').insert(contaPagar);
-         
-         // Atualiza visualmente a lista de contas a pagar
          const { data: payData } = await supabase.from('payables').select('*').order('created_at', {ascending: false}).limit(1);
          if(payData) setContasPagar(prev => [...prev, payData[0]]);
       }
@@ -302,11 +291,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateCompra = async (id: string, item: any) => { /* ... */ };
   const deleteCompra = async (id: string) => { /* ... */ };
 
-  // --- VENDAS (COM LÓGICA DE PARCELAMENTO) ---
+  // --- VENDAS ---
   const addVenda = async (item: any, parcelas: number = 1) => {
     try {
       const userId = checkUser();
-      // 1. Criar a transação de venda
       const payload = { ...item, user_id: userId, type: 'sell' };
       const { data, error } = await supabase.from('transactions').insert(payload).select().single();
       if (error) throw error;
@@ -314,13 +302,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setVendas(prev => [...prev, data]);
       toast.success('Venda registrada!');
 
-      // 2. Se for pendente, gerar Contas a Receber (Parcelas)
       if (item.status === 'pendente') {
          const valorParcela = item.valorTotal / parcelas;
          const dataBase = new Date(item.dataVenda);
 
          for (let i = 1; i <= parcelas; i++) {
-            // Calcular data de vencimento (meses subsequentes)
             const dataVencimento = new Date(dataBase);
             dataVencimento.setMonth(dataBase.getMonth() + i);
 
@@ -336,7 +322,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             await supabase.from('receivables').insert(contaReceber);
          }
          
-         // Atualiza a lista de contas a receber localmente
          const { data: recData } = await supabase.from('receivables').select('*');
          if(recData) setContasReceber(recData);
       }
