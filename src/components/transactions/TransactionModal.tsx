@@ -79,7 +79,10 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
   const [programId, setProgramId] = useState('');
   const [transactionType, setTransactionType] = useState<TransactionType>('COMPRA');
   const [quantity, setQuantity] = useState('');
-  const [totalValue, setTotalValue] = useState('');
+  
+  // MUDANÇA 1: Substituímos totalValue por pricePerThousand
+  const [pricePerThousand, setPricePerThousand] = useState(''); 
+  
   const [transactionDate, setTransactionDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [expirationDate, setExpirationDate] = useState('');
   const [notes, setNotes] = useState('');
@@ -98,6 +101,14 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // MUDANÇA 2: Cálculo automático do Total (Qtd / 1000 * Milheiro)
+  const calculatedTotal = useMemo(() => {
+    const qty = parseFloat(quantity) || 0;
+    const price = parseFloat(pricePerThousand) || 0;
+    if (qty <= 0 || price <= 0) return 0;
+    return (qty / 1000) * price;
+  }, [quantity, pricePerThousand]);
+
   // Reset form when modal opens
   useEffect(() => {
     if (open) {
@@ -105,7 +116,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
       setProgramId('');
       setTransactionType('COMPRA');
       setQuantity('');
-      setTotalValue('');
+      setPricePerThousand(''); // Resetando o novo estado
       setTransactionDate(format(new Date(), 'yyyy-MM-dd'));
       setExpirationDate('');
       setNotes('');
@@ -137,13 +148,13 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
     );
   }, [useCreditCard, selectedCard, transactionDate]);
 
-  // Generate installment preview
+  // Generate installment preview (Usando calculatedTotal)
   const installmentPreview = useMemo(() => {
-    const value = parseFloat(totalValue) || 0;
+    const value = calculatedTotal;
     const count = parseInt(installmentCount) || 1;
     if (value <= 0 || count <= 0) return [];
     return generateInstallments(value, count, firstPaymentDate);
-  }, [totalValue, installmentCount, firstPaymentDate]);
+  }, [calculatedTotal, installmentCount, firstPaymentDate]);
 
   // Calculate average CPM for the selected program and account
   const avgCpm = useMemo(() => {
@@ -154,26 +165,24 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
     return balance?.avg_cpm || 0;
   }, [milesBalance, programId, accountId]);
 
-  // Calculate profit preview for sales
+  // Calculate profit preview for sales (Usando calculatedTotal)
   const saleProfit = useMemo(() => {
-    const value = parseFloat(totalValue) || 0;
+    const value = calculatedTotal;
     const qty = parseInt(quantity) || 0;
     if (value <= 0 || qty <= 0) return null;
     return calculateSaleProfit(value, qty, avgCpm / 1000);
-  }, [totalValue, quantity, avgCpm]);
+  }, [calculatedTotal, quantity, avgCpm]);
 
-  // Calculate CPM for purchase
+  // Calculate CPM for purchase (Agora é direto o valor do milheiro)
   const purchaseCpm = useMemo(() => {
-    const value = parseFloat(totalValue) || 0;
-    const qty = parseInt(quantity) || 0;
-    if (value <= 0 || qty <= 0) return 0;
-    return (value / qty) * 1000;
-  }, [totalValue, quantity]);
+    return parseFloat(pricePerThousand) || 0;
+  }, [pricePerThousand]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!accountId || !programId || !quantity || !totalValue) {
+    // Validação usando pricePerThousand
+    if (!accountId || !programId || !quantity || !pricePerThousand) {
       toast.error('Preencha todos os campos obrigatórios');
       return;
     }
@@ -181,7 +190,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
     setIsSubmitting(true);
 
     try {
-      const value = parseFloat(totalValue);
+      const value = calculatedTotal; // Usamos o total calculado para salvar no banco
       const qty = parseInt(quantity);
 
       // Create the transaction
@@ -347,21 +356,28 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
             </div>
 
             <div className="space-y-2">
+              {/* MUDANÇA 3: Label e Input para Milheiro */}
               <Label>
-                {transactionType === 'VENDA' ? 'Valor de Venda' : 'Valor Total'} *
+                {transactionType === 'VENDA' ? 'Valor Venda (Milheiro) *' : 'Valor Compra (Milheiro) *'}
               </Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={totalValue}
-                onChange={e => setTotalValue(e.target.value)}
-                placeholder="Ex: 1500.00"
-                min="0"
-              />
+              <div className="space-y-1">
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={pricePerThousand}
+                  onChange={e => setPricePerThousand(e.target.value)}
+                  placeholder="Ex: 17.50"
+                  min="0"
+                />
+                {/* MUDANÇA 4: Exibição do Total Calculado */}
+                <div className="text-right text-sm font-medium text-muted-foreground">
+                  Total: {formatCurrency(calculatedTotal)}
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* CPM Preview for purchases */}
+          {/* CPM Preview for purchases - Agora redundante pois é o próprio input, mas mantido para visual */}
           {transactionType === 'COMPRA' && purchaseCpm > 0 && (
             <Card className="bg-muted/30">
               <CardContent className="pt-4">
@@ -514,7 +530,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
                         <SelectContent>
                           {Array.from({ length: 12 }, (_, i) => i + 1).map(n => (
                             <SelectItem key={n} value={n.toString()}>
-                              {n}x de {formatCurrency((parseFloat(totalValue) || 0) / n)}
+                              {n}x de {formatCurrency(calculatedTotal / n)}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -574,7 +590,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
                         <SelectContent>
                           {Array.from({ length: 12 }, (_, i) => i + 1).map(n => (
                             <SelectItem key={n} value={n.toString()}>
-                              {n}x de {formatCurrency((parseFloat(totalValue) || 0) / n)}
+                              {n}x de {formatCurrency(calculatedTotal / n)}
                             </SelectItem>
                           ))}
                         </SelectContent>
