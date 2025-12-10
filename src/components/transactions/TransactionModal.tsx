@@ -1,3 +1,5 @@
+import { subYears } from 'date-fns';
+import { useData } from '@/contexts/DataContext'; // Para pegar as vendas e verificar histórico
 import { useState, useEffect, useMemo } from 'react';
 import { format, addDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
