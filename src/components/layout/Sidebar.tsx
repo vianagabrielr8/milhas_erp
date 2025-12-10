@@ -16,6 +16,7 @@ import {
   Wallet,
   LogOut,
   User,
+  ShieldCheck, // <--- IMPORTAÇÃO DO ÍCONE NOVO
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState, useEffect } from 'react';
@@ -27,6 +28,7 @@ const menuItems = [
   { icon: DollarSign, label: 'Vendas', path: '/vendas' },
   { icon: Receipt, label: 'Financeiro', path: '/financeiro' },
   { icon: Wallet, label: 'Cartões', path: '/cartoes' },
+  { icon: ShieldCheck, label: 'Limites CPF', path: '/limites' }, // <--- MENU NOVO AQUI
   { icon: Users, label: 'Clientes', path: '/clientes' },
   { icon: Truck, label: 'Fornecedores', path: '/fornecedores' },
   { icon: Plane, label: 'Programas', path: '/programas' },
@@ -35,11 +37,9 @@ const menuItems = [
 
 export const Sidebar = () => {
   const [collapsed, setCollapsed] = useState(false);
-  // Estado para guardar os dados do usuário
   const [userInfo, setUserInfo] = useState<{ name: string; email: string; avatar: string | null } | null>(null);
   const navigate = useNavigate();
 
-  // Busca os dados do usuário assim que o menu carrega
   useEffect(() => {
     const getUserData = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -47,7 +47,7 @@ export const Sidebar = () => {
         setUserInfo({
           name: user.user_metadata.full_name || user.user_metadata.name || 'Usuário',
           email: user.email || '',
-          avatar: user.user_metadata.avatar_url || null, // Pega a foto do Google
+          avatar: user.user_metadata.avatar_url || null,
         });
       }
     };
@@ -118,7 +118,6 @@ export const Sidebar = () => {
           {/* Seção do Usuário */}
           {userInfo && (
             <div className={cn("flex items-center gap-3 mb-4", collapsed ? "justify-center" : "")}>
-              {/* Avatar ou Ícone Padrão */}
               <div className="relative flex-shrink-0">
                 {userInfo.avatar ? (
                   <img 
@@ -131,15 +130,13 @@ export const Sidebar = () => {
                     <User className="h-5 w-5 text-sidebar-foreground" />
                   </div>
                 )}
-                {/* Bolinha verde de Online */}
                 <div className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-sidebar" />
               </div>
 
-              {/* Nome e Email (Escondido se menu fechado) */}
               {!collapsed && (
                 <div className="flex flex-col overflow-hidden">
                   <span className="text-sm font-medium text-sidebar-foreground truncate" title={userInfo.name}>
-                    {userInfo.name.split(' ')[0]} {/* Mostra só o primeiro nome */}
+                    {userInfo.name.split(' ')[0]} 
                   </span>
                   <span className="text-[10px] text-muted-foreground truncate" title={userInfo.email}>
                     {userInfo.email}
