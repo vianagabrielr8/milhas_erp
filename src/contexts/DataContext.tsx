@@ -141,15 +141,18 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return session.user.id;
   };
 
-  // --- PROGRAMAS ---
-  const addPrograma = async (item: any) => {
-    // Programas geralmente não tem user_id se forem globais. Se forem por user, descomente o user_id.
-    const { data, error } = await supabase.from('programs').insert(item).select().single();
-    if (error) { toast.error('Erro ao criar programa'); return; }
-    setProgramas(prev => [...prev, data]);
-  };
-  const updatePrograma = async (id: string, item: any) => { /* Implementar similar ao updateCliente */ };
-  const deletePrograma = async (id: string) => { /* Implementar similar ao deleteCliente */ };
+// Programas (Mapeando Inglês -> Português)
+      const { data: progData } = await supabase.from('programs').select('*');
+      if (progData) {
+        const programasFormatados = progData.map((p: any) => ({
+          id: p.id,
+          nome: p.name,             // O banco manda 'name', o site usa 'nome'
+          descricao: p.slug,        // Usamos o slug como descrição por enquanto
+          ativo: p.active,          // O banco manda 'active', o site usa 'ativo'
+          createdAt: new Date(p.created_at)
+        }));
+        setProgramas(programasFormatados);
+      }
 
   // --- CONTAS (Accounts) ---
   const addConta = async (item: any) => {
