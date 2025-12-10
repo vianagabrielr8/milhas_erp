@@ -245,31 +245,57 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateFornecedor = async (id: string, item: any) => { /* ... */ };
   const deleteFornecedor = async (id: string) => { /* ... */ };
 
-  // --- COMPRAS ---
+// --- COMPRAS (Transactions type='buy') ---
   const addCompra = async (item: any) => {
     try {
       const userId = checkUser();
-      const payload = { ...item, user_id: userId, type: 'buy' }; 
-      const { data, error } = await supabase.from('transactions').insert(payload).select().single();
-      if (error) throw error;
-      setCompras(prev => [...prev, data]);
-      toast.success('Compra registrada!');
+      
+      // 1. TRADUÇÃO DOS CAMPOS (Front -> Banco)
+      // O banco usa snake_case (program_id), o site usa camelCase (programaId)
+      const payload = {
+        user_id: userId,
+        type: 'buy', // Define que é uma entrada/compra
+        program_id: item.programaId,  // <--- TRADUÇÃO NECESSÁRIA
+        account_id: item.contaId,     // <--- TRADUÇÃO NECESSÁRIA
+        // client_id: item.clienteId || null, // Descomente se sua tabela transactions tiver esse campo
+        quantity: parseInt(item.quantidade),
+        amount: parseFloat(item.valorTotal), // O banco guarda o valor total
+        date: item.dataCompra || new Date(),
+        status: item.status || 'concluido',
+        description: item.observacoes
+      };
 
+      const { data, error } = await supabase.from('transactions').insert(payload).select().single();
+      
+      if (error) {
+        console.error('Erro detalhado Supabase:', error); 
+        throw error;
+      }
+      
+      setCompras(prev => [...prev, data]);
+      toast.success('Transação registrada com sucesso!');
+
+      // Lógica de Contas a Pagar (se pendente)
       if (item.status === 'pendente') {
          const contaPagar = {
-            compraId: data.id, 
-            descricao: `Compra de ${item.quantidade} milhas`,
-            valor: item.valorTotal,
-            dataVencimento: item.dataCompra,
+            user_id: userId,
+            description: `Compra de ${item.quantidade} milhas`,
+            amount: parseFloat(item.valorTotal),
+            due_date: item.dataCompra,
             status: 'pendente',
-            user_id: userId
+            // transaction_id: data.id // Descomente se tiver essa coluna em payables
          };
          await supabase.from('payables').insert(contaPagar);
-         // Atualiza state simples
-         const { data: pay } = await supabase.from('payables').select('*').eq('id', contaPagar.compraId).single(); // mock refresh
-         // Idealmente recarregaria payables, aqui vamos simplificar
+         
+         // Atualiza visualmente a lista de contas a pagar
+         const { data: payData } = await supabase.from('payables').select('*').order('created_at', {ascending: false}).limit(1);
+         if(payData) setContasPagar(prev => [...prev, payData[0]]);
       }
-    } catch (e) { toast.error('Erro ao registrar compra.'); }
+
+    } catch (e: any) { 
+        console.error(e);
+        toast.error('Erro ao registrar transação: ' + (e.message || 'Verifique os campos')); 
+    }
   };
   const updateCompra = async (id: string, item: any) => { /* ... */ };
   const deleteCompra = async (id: string) => { /* ... */ };
