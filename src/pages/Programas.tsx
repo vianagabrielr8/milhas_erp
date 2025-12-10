@@ -71,7 +71,7 @@ const Programas = () => {
 
   const columns = [
     { key: 'nome', header: 'Nome' },
-    { key: 'descricao', header: 'Descrição' },
+    // A coluna Descrição foi removida daqui conforme solicitado
     {
       key: 'ativo',
       header: 'Status',
