@@ -32,7 +32,6 @@ import {
   AlertTriangle 
 } from 'lucide-react';
 import { toast } from 'sonner';
-// 1. IMPORTANTE: Importar o cliente supabase para pegar o ID do usuário
 import { supabase } from '@/integrations/supabase/client';
 import { 
   usePrograms, 
@@ -51,9 +50,8 @@ import {
   calculateCardDates, 
   generateInstallments, 
   formatCPM, 
-  formatCurrency,
-  calculateSaleProfit,
-  formatDate 
+  formatCurrency, 
+  calculateSaleProfit 
 } from '@/utils/financeLogic';
 import { Database } from '@/integrations/supabase/types';
 
@@ -65,6 +63,10 @@ interface TransactionModalProps {
 }
 
 export function TransactionModal({ open, onOpenChange }: TransactionModalProps) {
+  // HOOKS DO CONTEXTO (PARA LIMITE CPF)
+  const { vendas, contas } = useData(); 
+
+  // HOOKS DO REACT QUERY
   const { data: programs } = usePrograms();
   const { data: accounts } = useAccounts();
   const { data: creditCards } = useCreditCards();
@@ -84,7 +86,6 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
   const [transactionType, setTransactionType] = useState<TransactionType>('COMPRA');
   const [quantity, setQuantity] = useState('');
   
-  // Estado para o Valor do Milheiro
   const [pricePerThousand, setPricePerThousand] = useState(''); 
   
   const [transactionDate, setTransactionDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -105,7 +106,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Cálculo automático do Total (Qtd / 1000 * Milheiro)
+  // Cálculo automático do Total
   const calculatedTotal = useMemo(() => {
     const qty = parseFloat(quantity) || 0;
     const price = parseFloat(pricePerThousand) || 0;
@@ -113,7 +114,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
     return (qty / 1000) * price;
   }, [quantity, pricePerThousand]);
 
-  // Reset form when modal opens
+  // Reset form
   useEffect(() => {
     if (open) {
       setAccountId('');
@@ -135,12 +136,12 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
     }
   }, [open]);
 
-  // Get selected card details
+  // Selected card
   const selectedCard = useMemo(() => {
     return creditCards?.find(c => c.id === selectedCardId);
   }, [creditCards, selectedCardId]);
 
-  // Calculate first payment date based on card
+  // First payment date
   const firstPaymentDate = useMemo(() => {
     if (!useCreditCard || !selectedCard) {
       return addDays(new Date(transactionDate), 30);
@@ -152,7 +153,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
     );
   }, [useCreditCard, selectedCard, transactionDate]);
 
-  // Generate installment preview
+  // Installment preview
   const installmentPreview = useMemo(() => {
     const value = calculatedTotal;
     const count = parseInt(installmentCount) || 1;
@@ -160,7 +161,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
     return generateInstallments(value, count, firstPaymentDate);
   }, [calculatedTotal, installmentCount, firstPaymentDate]);
 
-  // Calculate average CPM
+  // Average CPM
   const avgCpm = useMemo(() => {
     if (!programId || !accountId) return 0;
     const balance = milesBalance?.find(
@@ -169,7 +170,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
     return balance?.avg_cpm || 0;
   }, [milesBalance, programId, accountId]);
 
-  // Calculate profit preview
+  // Profit preview
   const saleProfit = useMemo(() => {
     const value = calculatedTotal;
     const qty = parseInt(quantity) || 0;
@@ -177,10 +178,46 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
     return calculateSaleProfit(value, qty, avgCpm / 1000);
   }, [calculatedTotal, quantity, avgCpm]);
 
-  // Calculate CPM for purchase
+  // Purchase CPM
   const purchaseCpm = useMemo(() => {
     return parseFloat(pricePerThousand) || 0;
   }, [pricePerThousand]);
+
+  // --- NOVO: LÓGICA DE ALERTA DE LIMITE CPF ---
+  const cpfAlert = useMemo(() => {
+    if (transactionType !== 'VENDA' || !programId || !accountId || !clientId) return null;
+
+    // 1. Busca limite do programa (com fallback para 25)
+    const prog = programs?.find(p => p.id === programId);
+    // Usamos 'as any' caso o typescript do hook 'usePrograms' ainda não tenha a propriedade 'cpf_limit'
+    const limite = (prog as any)?.cpf_limit || 25; 
+
+    // 2. Filtra vendas dessa conta nesse programa nos últimos 12 meses
+    const umAnoAtras = subYears(new Date(), 1);
+    const vendasRelevantes = vendas.filter(v => 
+      v.contaId === accountId && 
+      v.programaId === programId &&
+      new Date(v.dataVenda) >= umAnoAtras
+    );
+
+    // 3. Lista CPFs já usados
+    const clientesUsados = new Set(vendasRelevantes.map(v => v.clienteId));
+    const qtdUsados = clientesUsados.size;
+
+    // 4. Verifica se o cliente atual JÁ está na lista
+    const clienteJaComprou = clientesUsados.has(clientId);
+
+    if (clienteJaComprou) {
+      return { type: 'success', msg: `Cliente já consta na lista de ${qtdUsados}/${limite}. Não consome nova cota.` };
+    } else {
+      // Cliente Novo
+      if (qtdUsados >= limite) {
+        return { type: 'error', msg: `LIMITE ATINGIDO (${qtdUsados}/${limite})! Essa venda vai exceder a cota de CPFs.` };
+      } else {
+        return { type: 'warning', msg: `Cliente novo. Vai consumir uma cota (${qtdUsados + 1}/${limite}).` };
+      }
+    }
+  }, [transactionType, programId, accountId, clientId, programs, vendas]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -193,7 +230,6 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
     setIsSubmitting(true);
 
     try {
-      // 2. CORREÇÃO: Pegar o usuário logado antes de salvar
       const { data: { user } } = await supabase.auth.getUser();
       
       if (!user) {
@@ -205,16 +241,12 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
       const value = calculatedTotal;
       const qty = parseInt(quantity);
 
-// Create the transaction
       const transaction = await createTransaction.mutateAsync({
         account_id: accountId,
         program_id: programId,
         type: transactionType,
         quantity: transactionType === 'VENDA' || transactionType === 'USO' || transactionType === 'TRANSF_SAIDA' || transactionType === 'EXPIROU' ? -qty : qty,
-        
-        // CORREÇÃO: Aceitar custo também para Transferência Entrada e Bônus
         total_cost: (transactionType === 'COMPRA' || transactionType === 'TRANSF_ENTRADA' || transactionType === 'BONUS') ? value : null,
-        
         sale_price: transactionType === 'VENDA' ? value : null,
         transaction_date: transactionDate,
         expiration_date: expirationDate || null,
@@ -224,7 +256,6 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
         user_id: user.id
       });
 
-      // Handle payables
       if (transactionType === 'COMPRA' && useCreditCard && selectedCardId) {
         const program = programs?.find(p => p.id === programId);
         const account = accounts?.find(a => a.id === accountId);
@@ -236,7 +267,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
           description,
           total_amount: value,
           installments: parseInt(installmentCount),
-          user_id: user.id // Importante enviar user_id aqui também
+          user_id: user.id
         });
 
         const installments = installmentPreview.map(inst => ({
@@ -245,13 +276,12 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
           amount: inst.amount,
           due_date: format(inst.dueDate, 'yyyy-MM-dd'),
           status: 'pendente' as const,
-          user_id: user.id // E aqui
+          user_id: user.id
         }));
 
         await createPayableInstallments.mutateAsync(installments);
       }
 
-      // Handle receivables
       if (transactionType === 'VENDA' && useInstallments) {
         const program = programs?.find(p => p.id === programId);
         const client = clients?.find(c => c.id === clientId);
@@ -285,7 +315,6 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
       onOpenChange(false);
     } catch (error: any) {
       console.error('Error creating transaction:', error);
-      // Mostra o erro real do banco se houver
       toast.error('Erro ao registrar: ' + (error.message || 'Verifique os dados'));
     } finally {
       setIsSubmitting(false);
@@ -500,6 +529,19 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
                   ))}
                 </SelectContent>
               </Select>
+
+              {/* --- AVISO DE LIMITE DE CPF (NOVO) --- */}
+              {cpfAlert && (
+                <div className={`text-xs p-2 rounded border mt-2 flex items-center gap-2 ${
+                  cpfAlert.type === 'error' ? 'bg-destructive/10 text-destructive border-destructive/20' :
+                  cpfAlert.type === 'success' ? 'bg-success/10 text-success border-success/20' :
+                  'bg-warning/10 text-warning border-warning/20'
+                }`}>
+                  {cpfAlert.type === 'error' && <AlertTriangle className="h-3 w-3" />}
+                  {cpfAlert.type === 'success' && <TrendingUp className="h-3 w-3" />} 
+                  {cpfAlert.msg}
+                </div>
+              )}
             </div>
           )}
 
