@@ -15,12 +15,13 @@ import Programas from "./pages/Programas";
 import Contas from "./pages/Contas";
 import Estoque from "./pages/Estoque";
 import CartoesPagamento from "./pages/CartoesPagamento";
+import Limites from "./pages/Limites"; // <--- IMPORTAÇÃO NOVA
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 1000 * 60 * 5, // <--- O SEGREDO: Guarda os dados por 5 minutos
+      staleTime: 1000 * 60 * 5, 
       gcTime: 1000 * 60 * 10,
       retry: false,
       refetchOnWindowFocus: false,
@@ -47,6 +48,7 @@ const App = () => (
             <Route path="/fornecedores" element={<Fornecedores />} />
             <Route path="/programas" element={<Programas />} />
             <Route path="/contas" element={<Contas />} />
+            <Route path="/limites" element={<Limites />} /> {/* <--- ROTA NOVA */}
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
