@@ -4,6 +4,7 @@ export interface Programa {
   descricao?: string;
   ativo: boolean;
   createdAt: Date;
+  limite?: number; // <--- ADICIONEI ESTA LINHA AQUI
 }
 
 export interface Conta {
