@@ -30,6 +30,8 @@ import {
   AlertTriangle 
 } from 'lucide-react';
 import { toast } from 'sonner';
+// 1. IMPORTANTE: Importar o cliente supabase para pegar o ID do usuário
+import { supabase } from '@/integrations/supabase/client';
 import { 
   usePrograms, 
   useAccounts, 
@@ -80,7 +82,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
   const [transactionType, setTransactionType] = useState<TransactionType>('COMPRA');
   const [quantity, setQuantity] = useState('');
   
-  // MUDANÇA 1: Substituímos totalValue por pricePerThousand
+  // Estado para o Valor do Milheiro
   const [pricePerThousand, setPricePerThousand] = useState(''); 
   
   const [transactionDate, setTransactionDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -101,7 +103,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // MUDANÇA 2: Cálculo automático do Total (Qtd / 1000 * Milheiro)
+  // Cálculo automático do Total (Qtd / 1000 * Milheiro)
   const calculatedTotal = useMemo(() => {
     const qty = parseFloat(quantity) || 0;
     const price = parseFloat(pricePerThousand) || 0;
@@ -116,7 +118,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
       setProgramId('');
       setTransactionType('COMPRA');
       setQuantity('');
-      setPricePerThousand(''); // Resetando o novo estado
+      setPricePerThousand(''); 
       setTransactionDate(format(new Date(), 'yyyy-MM-dd'));
       setExpirationDate('');
       setNotes('');
@@ -148,7 +150,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
     );
   }, [useCreditCard, selectedCard, transactionDate]);
 
-  // Generate installment preview (Usando calculatedTotal)
+  // Generate installment preview
   const installmentPreview = useMemo(() => {
     const value = calculatedTotal;
     const count = parseInt(installmentCount) || 1;
@@ -156,7 +158,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
     return generateInstallments(value, count, firstPaymentDate);
   }, [calculatedTotal, installmentCount, firstPaymentDate]);
 
-  // Calculate average CPM for the selected program and account
+  // Calculate average CPM
   const avgCpm = useMemo(() => {
     if (!programId || !accountId) return 0;
     const balance = milesBalance?.find(
@@ -165,7 +167,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
     return balance?.avg_cpm || 0;
   }, [milesBalance, programId, accountId]);
 
-  // Calculate profit preview for sales (Usando calculatedTotal)
+  // Calculate profit preview
   const saleProfit = useMemo(() => {
     const value = calculatedTotal;
     const qty = parseInt(quantity) || 0;
@@ -173,7 +175,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
     return calculateSaleProfit(value, qty, avgCpm / 1000);
   }, [calculatedTotal, quantity, avgCpm]);
 
-  // Calculate CPM for purchase (Agora é direto o valor do milheiro)
+  // Calculate CPM for purchase
   const purchaseCpm = useMemo(() => {
     return parseFloat(pricePerThousand) || 0;
   }, [pricePerThousand]);
@@ -181,7 +183,6 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Validação usando pricePerThousand
     if (!accountId || !programId || !quantity || !pricePerThousand) {
       toast.error('Preencha todos os campos obrigatórios');
       return;
@@ -190,7 +191,16 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
     setIsSubmitting(true);
 
     try {
-      const value = calculatedTotal; // Usamos o total calculado para salvar no banco
+      // 2. CORREÇÃO: Pegar o usuário logado antes de salvar
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        toast.error('Erro de permissão: Usuário não logado');
+        setIsSubmitting(false);
+        return;
+      }
+
+      const value = calculatedTotal;
       const qty = parseInt(quantity);
 
       // Create the transaction
@@ -206,9 +216,10 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
         notes: notes || null,
         supplier_id: supplierId || null,
         client_id: clientId || null,
+        user_id: user.id // 3. CORREÇÃO: Enviando o ID do usuário (Obrigatório pelo RLS)
       });
 
-      // Handle payables for purchases with credit card
+      // Handle payables
       if (transactionType === 'COMPRA' && useCreditCard && selectedCardId) {
         const program = programs?.find(p => p.id === programId);
         const account = accounts?.find(a => a.id === accountId);
@@ -220,6 +231,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
           description,
           total_amount: value,
           installments: parseInt(installmentCount),
+          user_id: user.id // Importante enviar user_id aqui também
         });
 
         const installments = installmentPreview.map(inst => ({
@@ -228,12 +240,13 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
           amount: inst.amount,
           due_date: format(inst.dueDate, 'yyyy-MM-dd'),
           status: 'pendente' as const,
+          user_id: user.id // E aqui
         }));
 
         await createPayableInstallments.mutateAsync(installments);
       }
 
-      // Handle receivables for sales with installments
+      // Handle receivables
       if (transactionType === 'VENDA' && useInstallments) {
         const program = programs?.find(p => p.id === programId);
         const client = clients?.find(c => c.id === clientId);
@@ -244,6 +257,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
           description,
           total_amount: value,
           installments: parseInt(saleInstallments),
+          user_id: user.id
         });
 
         const receiveInstallments = generateInstallments(
@@ -256,6 +270,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
           amount: inst.amount,
           due_date: format(inst.dueDate, 'yyyy-MM-dd'),
           status: 'pendente' as const,
+          user_id: user.id
         }));
 
         await createReceivableInstallments.mutateAsync(receiveInstallments);
@@ -263,9 +278,10 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
 
       toast.success('Transação registrada com sucesso!');
       onOpenChange(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating transaction:', error);
-      toast.error('Erro ao registrar transação');
+      // Mostra o erro real do banco se houver
+      toast.error('Erro ao registrar: ' + (error.message || 'Verifique os dados'));
     } finally {
       setIsSubmitting(false);
     }
@@ -284,7 +300,6 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Basic Info */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Conta (CPF) *</Label>
@@ -342,7 +357,6 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
 
           <Separator />
 
-          {/* Transaction Details */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Quantidade de Milhas *</Label>
@@ -356,7 +370,6 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
             </div>
 
             <div className="space-y-2">
-              {/* MUDANÇA 3: Label e Input para Milheiro */}
               <Label>
                 {transactionType === 'VENDA' ? 'Valor Venda (Milheiro) *' : 'Valor Compra (Milheiro) *'}
               </Label>
@@ -369,7 +382,6 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
                   placeholder="Ex: 17.50"
                   min="0"
                 />
-                {/* MUDANÇA 4: Exibição do Total Calculado */}
                 <div className="text-right text-sm font-medium text-muted-foreground">
                   Total: {formatCurrency(calculatedTotal)}
                 </div>
@@ -377,7 +389,6 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
             </div>
           </div>
 
-          {/* CPM Preview for purchases - Agora redundante pois é o próprio input, mas mantido para visual */}
           {transactionType === 'COMPRA' && purchaseCpm > 0 && (
             <Card className="bg-muted/30">
               <CardContent className="pt-4">
@@ -391,7 +402,6 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
             </Card>
           )}
 
-          {/* Profit Preview for sales */}
           {transactionType === 'VENDA' && saleProfit && (
             <Card className={saleProfit.profit >= 0 ? 'bg-success/10 border-success/30' : 'bg-destructive/10 border-destructive/30'}>
               <CardContent className="pt-4 space-y-2">
@@ -452,7 +462,6 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
             )}
           </div>
 
-          {/* Supplier/Client selection */}
           {transactionType === 'COMPRA' && (
             <div className="space-y-2">
               <Label>Fornecedor</Label>
@@ -491,7 +500,6 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
 
           <Separator />
 
-          {/* Credit Card Section for Purchases */}
           {transactionType === 'COMPRA' && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -538,7 +546,6 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
                     </div>
                   </div>
 
-                  {/* Installment Preview */}
                   {installmentPreview.length > 0 && selectedCardId && (
                     <Card>
                       <CardContent className="pt-4">
@@ -567,7 +574,6 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
             </div>
           )}
 
-          {/* Installment Section for Sales */}
           {transactionType === 'VENDA' && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
