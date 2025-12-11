@@ -1,183 +1,92 @@
-import { addMonths, setDate, isAfter, startOfDay, addDays } from 'date-fns';
+import { addMonths, setDate, isAfter, startOfDay } from 'date-fns';
 
-interface CreditCard {
-  closing_day: number;
-  due_day: number;
-}
-
-interface Installment {
-  installmentNumber: number;
-  dueDate: Date;
-  amount: number;
-}
-
-/**
- * Calculate the first due date based on purchase date and credit card billing cycle
- * Logic: 
- * - If purchaseDate is BEFORE closingDay, payment is in the same month (on dueDay)
- * - If purchaseDate is ON or AFTER closingDay, payment is pushed to next month
- * Example: Closes day 5, due day 10. Purchase on Jan 6 -> Due Feb 10
- */
-export function calculateCardDates(
-  purchaseDate: Date,
-  closingDay: number | null,
-  dueDay: number | null
-): Date {
-  const today = startOfDay(purchaseDate);
+// --- CÁLCULO DE DATAS DE CARTÃO (CORRIGIDO) ---
+export const calculateCardDates = (transactionDate: Date, closingDay: number, dueDay: number) => {
+  const purchaseDate = startOfDay(new Date(transactionDate));
   
-  // Fallback: if no card data, use current date + 30 days
-  if (!closingDay || !dueDay) {
-    return addDays(today, 30);
+  // Data de fechamento no mês da compra
+  const closingDateThisMonth = setDate(new Date(purchaseDate), closingDay);
+
+  // Data base para o vencimento
+  let targetMonthDate = purchaseDate;
+
+  // Se comprou DEPOIS do fechamento, a fatura é a do próximo mês
+  // Ex: Compra 15/11, Fechamento 14/11 -> Vai para fatura de Dezembro
+  if (isAfter(purchaseDate, closingDateThisMonth)) {
+    targetMonthDate = addMonths(purchaseDate, 1);
   }
 
-  // Get the closing date for the current month
-  let closingDate = setDate(today, closingDay);
-  
-  // If purchase is ON or AFTER the closing date, it goes to next month's bill
-  if (today.getDate() >= closingDay) {
-    closingDate = addMonths(closingDate, 1);
-  }
-  
-  // The due date is in the month after the closing month
-  // If dueDay is less than closingDay, payment is in the same month as closing
-  // If dueDay is greater than closingDay, payment is in the next month
-  let dueDate: Date;
-  
-  if (dueDay > closingDay) {
-    // Due date is in the same month as closing
-    dueDate = setDate(closingDate, dueDay);
-  } else {
-    // Due date is in the month after closing
-    dueDate = setDate(addMonths(closingDate, 1), dueDay);
-  }
-  
-  return dueDate;
-}
+  // Define o dia do vencimento no mês alvo
+  let finalDueDate = setDate(targetMonthDate, dueDay);
 
-/**
- * Generate installment schedule with calculated amounts and due dates
- * Each installment increments by 1 month from the first due date
- */
-export function generateInstallments(
-  totalValue: number,
-  installmentCount: number,
-  firstDueDate: Date
-): Installment[] {
-  const result: Installment[] = [];
-  
-  // Calculate base installment amount (rounded to 2 decimals)
-  const baseAmount = Math.floor((totalValue / installmentCount) * 100) / 100;
-  
-  // Track remaining to handle rounding differences
-  let remaining = totalValue;
-  
-  for (let i = 0; i < installmentCount; i++) {
-    const isLast = i === installmentCount - 1;
-    // Last installment gets the remainder to avoid rounding errors
-    const amount = isLast 
-      ? Math.round(remaining * 100) / 100 
-      : baseAmount;
-    
-    remaining -= baseAmount;
-    
-    result.push({
+  // Ajuste para cartões onde o vencimento vira o mês em relação ao fechamento
+  // Ex: Fecha dia 25, Vence dia 05.
+  if (dueDay < closingDay) {
+    finalDueDate = addMonths(finalDueDate, 1);
+  }
+
+  return finalDueDate;
+};
+
+// --- GERAÇÃO DE PARCELAS ---
+export const generateInstallments = (totalValue: number, count: number, firstDueDate: Date) => {
+  const installmentValue = totalValue / count;
+  const installments = [];
+
+  for (let i = 0; i < count; i++) {
+    const dueDate = addMonths(new Date(firstDueDate), i);
+    installments.push({
       installmentNumber: i + 1,
-      dueDate: addMonths(firstDueDate, i),
-      amount,
+      amount: installmentValue,
+      dueDate: dueDate,
     });
   }
-  
-  return result;
-}
 
-/**
- * Generate installments for receivables starting from a specific date
- */
-export function generateReceivableInstallments(
-  totalValue: number,
-  installmentCount: number,
-  firstReceiveDate: Date
-): Installment[] {
-  return generateInstallments(totalValue, installmentCount, firstReceiveDate);
-}
+  return installments;
+};
 
-/**
- * Calculate installment dates for payables based on credit card billing cycle
- */
-export function calculateInstallmentDates(
-  totalValue: number,
-  installmentCount: number,
-  purchaseDate: Date,
-  creditCard: CreditCard
-): Installment[] {
-  const firstDueDate = calculateCardDates(purchaseDate, creditCard.closing_day, creditCard.due_day);
-  return generateInstallments(totalValue, installmentCount, firstDueDate);
-}
+// --- FORMATAÇÃO DE MOEDA (R$) ---
+export const formatCurrency = (value: number) => {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(value);
+};
 
-/**
- * Calculate receivable installment dates starting from transaction date + 30 days
- */
-export function calculateReceivableInstallmentDates(
-  totalValue: number,
-  installmentCount: number,
-  transactionDate: Date
-): Installment[] {
-  const firstReceiveDate = addDays(transactionDate, 30);
-  return generateInstallments(totalValue, installmentCount, firstReceiveDate);
-}
-
-/**
- * Format CPM (Cost Per Thousand Miles)
- */
-export function formatCPM(value: number | null | undefined): string {
-  if (value === null || value === undefined || isNaN(value)) return 'R$ 0,00';
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
-}
-
-/**
- * Format currency value
- */
-export function formatCurrency(value: number | null | undefined): string {
-  if (value === null || value === undefined || isNaN(value)) return 'R$ 0,00';
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
-}
-
-/**
- * Calculate CPM from total cost and quantity
- */
-export function calculateCPM(totalCost: number, quantity: number): number {
-  if (quantity === 0) return 0;
-  return (totalCost / quantity) * 1000;
-}
-
-/**
- * Calculate estimated profit from a sale
- */
-export function calculateSaleProfit(
-  saleValue: number,
-  quantity: number,
-  avgCostPerMile: number
-): { profit: number; profitPerThousand: number; margin: number } {
-  const totalCost = avgCostPerMile * quantity;
-  const profit = saleValue - totalCost;
-  const profitPerThousand = quantity > 0 ? (profit / quantity) * 1000 : 0;
-  const margin = saleValue > 0 ? (profit / saleValue) * 100 : 0;
-  
-  return { profit, profitPerThousand, margin };
-}
-
-/**
- * Format number as Brazilian locale
- */
-export function formatNumber(value: number | null | undefined): string {
-  if (value === null || value === undefined || isNaN(value)) return '0';
+// --- FORMATAÇÃO DE NÚMEROS (Milhas) ---
+export const formatNumber = (value: number) => {
   return new Intl.NumberFormat('pt-BR').format(value);
-}
+};
 
-/**
- * Format date to dd/MM/yyyy
- */
-export function formatDate(date: Date | string): string {
-  const d = typeof date === 'string' ? new Date(date) : date;
-  return d.toLocaleDateString('pt-BR');
-}
+// --- FORMATAÇÃO DE CPM (Custo por Milheiro) ---
+export const formatCPM = (value: number) => {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+};
+
+// --- FORMATAÇÃO DE DATA ---
+export const formatDate = (date: Date | string) => {
+  return new Date(date).toLocaleDateString('pt-BR');
+};
+
+// --- CÁLCULO DE LUCRO DE VENDA ---
+export const calculateSaleProfit = (totalSaleValue: number, quantity: number, currentAvgCpm: number) => {
+  // Custo das milhas vendidas baseado no CPM médio do estoque
+  const costOfSoldMiles = (quantity / 1000) * currentAvgCpm;
+  
+  const profit = totalSaleValue - costOfSoldMiles;
+  const profitPerThousand = (profit / quantity) * 1000;
+  
+  // Margem de lucro (%)
+  const margin = costOfSoldMiles > 0 ? (profit / costOfSoldMiles) * 100 : 100;
+
+  return {
+    profit,
+    profitPerThousand,
+    margin
+  };
+};
