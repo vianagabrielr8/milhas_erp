@@ -8,7 +8,9 @@ import { DataProvider } from "@/contexts/DataContext";
 import Index from "./pages/Index";
 import Compras from "./pages/Compras";
 import Vendas from "./pages/Vendas";
-import Financeiro from "./pages/Financeiro";
+// import Financeiro from "./pages/Financeiro"; // Removido
+import ContasPagar from "./pages/ContasPagar"; // <--- NOVO
+import ContasReceber from "./pages/ContasReceber"; // <--- NOVO
 import Clientes from "./pages/Clientes";
 import Fornecedores from "./pages/Fornecedores";
 import Programas from "./pages/Programas";
@@ -16,13 +18,13 @@ import Contas from "./pages/Contas";
 import Estoque from "./pages/Estoque";
 import CartoesPagamento from "./pages/CartoesPagamento";
 import Limites from "./pages/Limites";
-import Transferencias from "./pages/Transferencias"; // <--- ADICIONE ESTA LINHA
+import Transferencias from "./pages/Transferencias";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 1000 * 60 * 5, 
+      staleTime: 1000 * 60 * 5,
       gcTime: 1000 * 60 * 10,
       retry: false,
       refetchOnWindowFocus: false,
@@ -43,14 +45,18 @@ const App = () => (
             <Route path="/estoque" element={<Estoque />} />
             <Route path="/compras" element={<Compras />} />
             <Route path="/vendas" element={<Vendas />} />
-            <Route path="/financeiro" element={<Financeiro />} />
+            
+            {/* ROTAS FINANCEIRAS NOVAS */}
+            <Route path="/contas-pagar" element={<ContasPagar />} />
+            <Route path="/contas-receber" element={<ContasReceber />} />
             <Route path="/cartoes" element={<CartoesPagamento />} />
+            
             <Route path="/clientes" element={<Clientes />} />
             <Route path="/fornecedores" element={<Fornecedores />} />
             <Route path="/programas" element={<Programas />} />
             <Route path="/contas" element={<Contas />} />
             <Route path="/limites" element={<Limites />} />
-            <Route path="/transferencias" element={<Transferencias />} /> {/* <--- ADICIONE ESTA LINHA */}
+            <Route path="/transferencias" element={<Transferencias />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
