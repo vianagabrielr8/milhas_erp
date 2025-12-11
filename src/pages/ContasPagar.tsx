@@ -43,24 +43,41 @@ const ContasPagar = () => {
     return { inicioMes: startOfMonth(dataBase), finalMes: endOfMonth(dataBase) };
   }, [mesSelecionado]);
 
-  const aPagarFiltrado = useMemo(() => {
+const aPagarFiltrado = useMemo(() => {
     return contasPagar?.filter(c => {
         // 1. Filtro de Data
         const data = new Date(c.due_date.includes('T') ? c.due_date : `${c.due_date}T12:00:00`);
         const isDataOk = isWithinInterval(data, { start: inicioMes, end: finalMes });
         
-// 2. Filtro de Cartão (Versão Corrigida)
-        // Verifica tanto no ID direto quanto no objeto do cartão carregado
-        const isCartaoOk = cartaoSelecionado === "all" || 
-                           (c.payables?.credit_card_id === cartaoSelecionado) ||
-                           (c.payables?.credit_cards?.id === cartaoSelecionado);
-        // 3. Filtro de "Sem Cartão" (Opcional, se quiser ver só boletos)
-        const isSemCartaoOk = cartaoSelecionado === "none" && !c.payables?.credit_card_id;
+        // 2. Filtro de Cartão (VERSÃO ROBUSTA)
+        let isCartaoOk = false;
 
-        if (cartaoSelecionado === "none") return isDataOk && isSemCartaoOk;
+        if (cartaoSelecionado === "all") {
+            isCartaoOk = true;
+        } else if (cartaoSelecionado === "none") {
+            // Sem cartão: Verifica se não tem ID e nem objeto de cartão
+            isCartaoOk = !c.payables?.credit_card_id && !c.payables?.credit_cards;
+        } else {
+            // Com cartão: Verifica de 3 formas diferentes para não ter erro
+            
+            // A. Bateu o ID direto na conta?
+            const matchIdDireto = c.payables?.credit_card_id === cartaoSelecionado;
+            
+            // B. Bateu o ID dentro do objeto cartão?
+            const matchIdObjeto = c.payables?.credit_cards?.id === cartaoSelecionado;
+            
+            // C. (O PULO DO GATO) Bateu o NOME do cartão?
+            // Descobre o nome do cartão selecionado na lista de opções
+            const nomeCartaoSelecionado = cartoes?.find(x => x.id === cartaoSelecionado)?.name;
+            const nomeCartaoDaConta = c.payables?.credit_cards?.name;
+            const matchNome = nomeCartaoSelecionado && nomeCartaoDaConta && nomeCartaoSelecionado === nomeCartaoDaConta;
+
+            isCartaoOk = matchIdDireto || matchIdObjeto || matchNome;
+        }
+
         return isDataOk && isCartaoOk;
     }) || [];
-  }, [contasPagar, inicioMes, finalMes, cartaoSelecionado]);
+  }, [contasPagar, inicioMes, finalMes, cartaoSelecionado, cartoes]);
 
   const totalPagar = aPagarFiltrado.reduce((acc, c) => acc + Number(c.amount), 0);
 
