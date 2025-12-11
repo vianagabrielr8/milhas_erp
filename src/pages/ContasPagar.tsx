@@ -49,10 +49,11 @@ const ContasPagar = () => {
         const data = new Date(c.due_date.includes('T') ? c.due_date : `${c.due_date}T12:00:00`);
         const isDataOk = isWithinInterval(data, { start: inicioMes, end: finalMes });
         
-        // 2. Filtro de Cartão
+// 2. Filtro de Cartão (Versão Corrigida)
+        // Verifica tanto no ID direto quanto no objeto do cartão carregado
         const isCartaoOk = cartaoSelecionado === "all" || 
-                           (c.payables?.credit_card_id === cartaoSelecionado);
-
+                           (c.payables?.credit_card_id === cartaoSelecionado) ||
+                           (c.payables?.credit_cards?.id === cartaoSelecionado);
         // 3. Filtro de "Sem Cartão" (Opcional, se quiser ver só boletos)
         const isSemCartaoOk = cartaoSelecionado === "none" && !c.payables?.credit_card_id;
 
