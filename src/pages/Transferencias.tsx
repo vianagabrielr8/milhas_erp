@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useData } from '@/contexts/DataContext';
+import { useMilesBalance, useCreateTransaction } from '@/hooks/useSupabaseData'; // <--- IMPORT CORRIGIDO
 import { MainLayout } from '@/components/layout/MainLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -11,10 +12,14 @@ import { ArrowRightLeft, Calculator, TrendingUp } from 'lucide-react';
 import { formatCurrency, formatNumber, formatCPM } from '@/utils/financeLogic';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
-import { useCreateTransaction } from '@/hooks/useSupabaseData';
 
 const Transferencias = () => {
-  const { contas, programas, milesBalance } = useData();
+  // Dados Básicos do Contexto
+  const { contas, programas } = useData();
+  
+  // Dados de Saldo (Vindo da mesma fonte do Estoque agora)
+  const { data: milesBalance } = useMilesBalance(); 
+  
   const createTransaction = useCreateTransaction();
 
   // Estados do Formulário
@@ -25,8 +30,9 @@ const Transferencias = () => {
   const [bonus, setBonus] = useState("0");
   const [dataTransf, setDataTransf] = useState(format(new Date(), 'yyyy-MM-dd'));
 
-  // 1. Busca automática do saldo e CPM da origem no banco
+  // 1. Busca automática do saldo e CPM da origem
   const dadosOrigem = useMemo(() => {
+    // Se ainda não carregou os dados ou não selecionou, retorna zero
     if (!contaId || !origemId || !milesBalance) return { saldo: 0, cpm: 0 };
     
     // Procura no array de saldos o item que bate Conta + Programa
@@ -43,7 +49,6 @@ const Transferencias = () => {
     const qtdSaida = Number(quantidade) || 0;
     const percBonus = Number(bonus) || 0;
     
-    // Pega o CPM direto da origem (sem input manual)
     const cpmOrigem = dadosOrigem.cpm;
     
     // Custo Financeiro que está saindo (Qtd * CPM / 1000)
@@ -71,6 +76,11 @@ const Transferencias = () => {
      
      if (simulacao.qtdSaida > dadosOrigem.saldo) {
         toast.error(`Saldo insuficiente (Disponível: ${formatNumber(dadosOrigem.saldo)})`);
+        return;
+     }
+
+     if (origemId === destinoId) {
+        toast.error("Origem e Destino devem ser diferentes");
         return;
      }
 
@@ -131,7 +141,7 @@ const Transferencias = () => {
                   <SelectContent>{programas.map(p => <SelectItem key={p.id} value={p.id}>{p.nome}</SelectItem>)}</SelectContent>
                 </Select>
                 {contaId && origemId && (
-                  <p className="text-xs text-muted-foreground mt-1">
+                  <p className="text-xs text-muted-foreground mt-1 font-medium">
                     Disponível: {formatNumber(dadosOrigem.saldo)} | CPM: {formatCPM(dadosOrigem.cpm)}
                   </p>
                 )}
