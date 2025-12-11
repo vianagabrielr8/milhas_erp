@@ -13,7 +13,7 @@ import {
   Wallet,
   AlertTriangle,
   Filter,
-  Calendar
+  Banknote
 } from 'lucide-react';
 import { 
   Select, 
@@ -28,10 +28,10 @@ import {
   usePayableInstallments, 
   useReceivableInstallments,
   useTransactions,
-  useAccounts // <--- Adicionado para o filtro
+  useAccounts
 } from '@/hooks/useSupabaseData';
 import { formatCPM } from '@/utils/financeLogic';
-import { format, startOfMonth, endOfMonth, isWithinInterval, parseISO, subMonths } from 'date-fns';
+import { format, startOfMonth, endOfMonth, isWithinInterval, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
@@ -44,27 +44,28 @@ const Dashboard = () => {
   const { data: payableInstallments } = usePayableInstallments();
   const { data: receivableInstallments } = useReceivableInstallments();
   const { data: transactions } = useTransactions();
-  const { data: accounts } = useAccounts(); // <--- Lista de contas para o filtro
+  const { data: accounts } = useAccounts();
 
   // Estados dos Filtros
   const [filtroConta, setFiltroConta] = useState("all");
-  const [filtroMes, setFiltroMes] = useState(format(new Date(), 'yyyy-MM')); // Padrão: Mês atual
+  // Mantemos a data fixa no mês atual para os calculos, mas sem mostrar o seletor visual
+  const [filtroMes] = useState(format(new Date(), 'yyyy-MM')); 
 
   // --- LÓGICA DE FILTRAGEM ---
 
-  // 1. Filtrar Estoque (Baseado apenas na CONTA, pois estoque é "Posição Atual")
+  // 1. Filtrar Estoque (Baseado apenas na CONTA)
   const estoqueFiltrado = useMemo(() => {
     if (!milesBalance) return [];
     if (filtroConta === "all") return milesBalance;
     return milesBalance.filter(m => m.account_id === filtroConta);
   }, [milesBalance, filtroConta]);
 
-  // Totais do Estoque (Calculados sobre o filtrado)
+  // Totais do Estoque
   const totalMiles = estoqueFiltrado.reduce((acc, item) => acc + (item.balance || 0), 0);
   const totalInvested = estoqueFiltrado.reduce((acc, item) => acc + (item.total_invested || 0), 0);
   const avgCpmGlobal = totalMiles > 0 ? (totalInvested / totalMiles) * 1000 : 0;
 
-  // 2. Definir intervalo de datas para Financeiro e Lucro
+  // 2. Definir intervalo de datas para Financeiro (Mês Atual)
   const { inicioMes, finalMes } = useMemo(() => {
     const [ano, mes] = filtroMes.split('-');
     const dataBase = new Date(parseInt(ano), parseInt(mes) - 1, 1);
@@ -74,16 +75,12 @@ const Dashboard = () => {
     };
   }, [filtroMes]);
 
-  // 3. Filtrar Financeiro (Baseado em DATA DE VENCIMENTO + CONTA)
-  // Nota: Se seus installments não tiverem account_id direto, filtrar por conta aqui pode ser impreciso 
-  // sem fazer join. Vou filtrar por DATA (que é o principal para fluxo de caixa) e tentar filtrar por conta se possível.
+  // 3. Filtrar Financeiro (Baseado em DATA DE VENCIMENTO)
   const pendingPayables = useMemo(() => {
     return payableInstallments
       ?.filter(i => {
         const isPendente = i.status === 'pendente';
         const isDataOk = isWithinInterval(new Date(i.due_date), { start: inicioMes, end: finalMes });
-        // Se houver vinculo de conta no installment, filtramos. Se não, mostra geral do mês.
-        // Assumindo filtro de data como prioridade para "Contas do Mês".
         return isPendente && isDataOk;
       })
       .reduce((acc, i) => acc + Number(i.amount), 0) || 0;
@@ -99,7 +96,7 @@ const Dashboard = () => {
       .reduce((acc, i) => acc + Number(i.amount), 0) || 0;
   }, [receivableInstallments, inicioMes, finalMes]);
 
-  // 4. Filtrar Lucro (Transações dentro do MÊS selecionado + CONTA)
+  // 4. Filtrar Lucro (Transações dentro do MÊS atual + CONTA)
   const { profit } = useMemo(() => {
     const transacoesFiltradas = transactions?.filter(t => {
       const dataTransacao = new Date(t.transaction_date);
@@ -150,15 +147,8 @@ const Dashboard = () => {
     color: COLORS[index % COLORS.length],
   }));
 
-  // Formatters
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
-  };
-  const formatNumber = (value: number) => {
-    return new Intl.NumberFormat('pt-BR').format(value);
-  };
-
-  // --- RENDER ---
+  const formatCurrency = (value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+  const formatNumber = (value: number) => new Intl.NumberFormat('pt-BR').format(value);
 
   if (loadingBalance) {
     return (
@@ -178,46 +168,25 @@ const Dashboard = () => {
       />
 
       {/* --- BARRA DE FILTROS --- */}
-      <div className="flex flex-col sm:flex-row gap-4 mb-6 bg-muted/20 p-4 rounded-lg border border-border/50">
-        <div className="flex items-center gap-2 text-muted-foreground text-sm min-w-[80px]">
-          <Filter className="h-4 w-4" />
-          Filtros:
+      <div className="flex flex-col sm:flex-row gap-4 mb-6 bg-muted/20 p-4 rounded-lg border border-border/50 items-center">
+        <div className="flex items-center gap-2 text-muted-foreground text-sm">
+          <Filter className="h-4 w-4" /> Filtros:
         </div>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 flex-1">
-          {/* Filtro de Conta */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground ml-1">Conta</label>
-            <Select value={filtroConta} onValueChange={setFiltroConta}>
-              <SelectTrigger className="bg-background h-9">
-                <SelectValue placeholder="Todas as Contas" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas as Contas</SelectItem>
-                {accounts?.map(c => (
-                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Filtro de Mês */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground ml-1">Período (Financeiro/Lucro)</label>
-            <Select value={filtroMes} onValueChange={setFiltroMes}>
-              <SelectTrigger className="bg-background h-9">
-                <SelectValue placeholder="Selecione o mês" />
-              </SelectTrigger>
-              <SelectContent>
-                {Array.from({ length: 12 }, (_, i) => {
-                  const d = subMonths(new Date(), i);
-                  const value = format(d, 'yyyy-MM');
-                  const label = format(d, 'MMMM yyyy', { locale: ptBR });
-                  return <SelectItem key={value} value={value}>{label.charAt(0).toUpperCase() + label.slice(1)}</SelectItem>;
-                })}
-              </SelectContent>
-            </Select>
-          </div>
+        {/* Filtro de Conta (Agora ocupa menos espaço e está sozinho) */}
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-medium text-muted-foreground">Conta:</label>
+          <Select value={filtroConta} onValueChange={setFiltroConta}>
+            <SelectTrigger className="w-[250px] bg-background h-9">
+              <SelectValue placeholder="Todas as Contas" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas as Contas</SelectItem>
+              {accounts?.map(c => (
+                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
@@ -226,7 +195,7 @@ const Dashboard = () => {
         <StatCard
           title="Estoque de Milhas"
           value={formatNumber(totalMiles)}
-          subtitle="Total disponível (Filtrado)"
+          subtitle="Total disponível"
           icon={Plane}
           variant="default"
         />
@@ -238,9 +207,9 @@ const Dashboard = () => {
           variant="destructive"
         />
         <StatCard
-          title="Resultado do Mês" // Alterado título para refletir o filtro
+          title="Resultado do Mês"
           value={formatCurrency(profit)}
-          subtitle={`Lucro/Prejuízo em ${format(parseISO(filtroMes + '-01'), 'MMMM', { locale: ptBR })}`}
+          subtitle={`Lucro/Prejuízo em ${format(new Date(), 'MMMM', { locale: ptBR })}`} // Mostra o nome do mês atual
           icon={profit >= 0 ? TrendingUp : TrendingDown}
           variant={profit >= 0 ? 'success' : 'destructive'}
         />
@@ -254,20 +223,20 @@ const Dashboard = () => {
         <StatCard
           title="Contas a Pagar"
           value={formatCurrency(pendingPayables)}
-          subtitle={`Vencendo em ${format(parseISO(filtroMes + '-01'), 'MMM')}`}
+          subtitle={`Vencendo em ${format(new Date(), 'MMM')}`}
           icon={CreditCard}
           variant="warning"
         />
         <StatCard
           title="Contas a Receber"
           value={formatCurrency(pendingReceivables)}
-          subtitle={`Previsto para ${format(parseISO(filtroMes + '-01'), 'MMM')}`}
+          subtitle={`Previsto para ${format(new Date(), 'MMM')}`}
           icon={Receipt}
           variant="default"
         />
       </div>
 
-      {/* Expiring Miles Alert (Sempre mostra geral ou filtrado por conta se possível) */}
+      {/* Expiring Miles Alert */}
       {expiringMiles && expiringMiles.length > 0 && (
         <Card className="mb-8 border-warning/50 bg-warning/5">
           <CardHeader>
@@ -279,22 +248,17 @@ const Dashboard = () => {
           <CardContent>
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
               {expiringMiles
-                .filter(m => filtroConta === 'all' || m.account_name === accounts?.find(a => a.id === filtroConta)?.name) // Filtro visual simples pelo nome
+                .filter(m => filtroConta === 'all' || m.account_name === accounts?.find(a => a.id === filtroConta)?.name)
                 .slice(0, 6)
                 .map((item) => (
-                <div
-                  key={item.id}
-                  className="flex justify-between items-center p-3 rounded-lg bg-background border"
-                >
+                <div key={item.id} className="flex justify-between items-center p-3 rounded-lg bg-background border">
                   <div>
                     <span className="font-medium">{item.program_name}</span>
                     <div className="text-xs text-muted-foreground">{item.account_name}</div>
                   </div>
                   <div className="text-right">
                     <div className="font-bold">{item.quantity?.toLocaleString('pt-BR')}</div>
-                    <div className="text-xs text-warning">
-                      {item.days_until_expiration} dias
-                    </div>
+                    <div className="text-xs text-warning">{item.days_until_expiration} dias</div>
                   </div>
                 </div>
               ))}
@@ -373,15 +337,10 @@ const Dashboard = () => {
                   {milesDistribution.map((item, index) => (
                     <div key={item.name} className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <div
-                          className="w-3 h-3 rounded-full"
-                          style={{ backgroundColor: item.color }}
-                        />
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
                         <span className="text-sm">{item.name}</span>
                       </div>
-                      <span className="font-medium text-sm">
-                        {formatNumber(item.value)}
-                      </span>
+                      <span className="font-medium text-sm">{formatNumber(item.value)}</span>
                     </div>
                   ))}
                 </div>
@@ -414,18 +373,10 @@ const Dashboard = () => {
                   <tbody>
                     {cpmByProgram.map((item) => (
                       <tr key={item.name} className="border-b last:border-0">
-                        <td className="py-3 px-4">
-                          <Badge variant="secondary">{item.name}</Badge>
-                        </td>
-                        <td className="text-right py-3 px-4 font-medium">
-                          {formatNumber(item.balance)}
-                        </td>
-                        <td className="text-right py-3 px-4">
-                          {formatCurrency(item.invested)}
-                        </td>
-                        <td className="text-right py-3 px-4 font-bold text-primary">
-                          {formatCPM(item.cpm)}
-                        </td>
+                        <td className="py-3 px-4"><Badge variant="secondary">{item.name}</Badge></td>
+                        <td className="text-right py-3 px-4 font-medium">{formatNumber(item.balance)}</td>
+                        <td className="text-right py-3 px-4">{formatCurrency(item.invested)}</td>
+                        <td className="text-right py-3 px-4 font-bold text-primary">{formatCPM(item.cpm)}</td>
                       </tr>
                     ))}
                     <tr className="bg-muted/50 font-bold">
@@ -439,7 +390,7 @@ const Dashboard = () => {
               </div>
             ) : (
               <div className="py-12 text-center text-muted-foreground">
-                Sem dados para exibir. Registre compras para ver o CPM por programa.
+                Sem dados para exibir.
               </div>
             )}
           </CardContent>
