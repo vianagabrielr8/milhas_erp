@@ -15,8 +15,9 @@ import {
   Package,
   Wallet,
   LogOut,
-  User,
-  ShieldCheck, // <--- IMPORTAÇÃO DO ÍCONE NOVO
+User,
+  ShieldCheck, 
+  ArrowRightLeft, // <--- ADICIONE ESTE ÍCONE
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState, useEffect } from 'react';
@@ -26,9 +27,10 @@ const menuItems = [
   { icon: Package, label: 'Estoque', path: '/estoque' },
   { icon: ShoppingCart, label: 'Compras', path: '/compras' },
   { icon: DollarSign, label: 'Vendas', path: '/vendas' },
-  { icon: Receipt, label: 'Financeiro', path: '/financeiro' },
+{ icon: Receipt, label: 'Financeiro', path: '/financeiro' },
+  { icon: ArrowRightLeft, label: 'Transferências', path: '/transferencias' }, // <--- ADICIONE ESTA LINHA
   { icon: Wallet, label: 'Cartões', path: '/cartoes' },
-  { icon: ShieldCheck, label: 'Limites CPF', path: '/limites' }, // <--- MENU NOVO AQUI
+  { icon: ShieldCheck, label: 'Limites CPF', path: '/limites' },
   { icon: Users, label: 'Clientes', path: '/clientes' },
   { icon: Truck, label: 'Fornecedores', path: '/fornecedores' },
   { icon: Plane, label: 'Programas', path: '/programas' },
