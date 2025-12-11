@@ -1,26 +1,28 @@
-import { addMonths, setDate, isAfter, startOfDay } from 'date-fns';
+import { addMonths, setDate, isAfter, startOfDay, isEqual } from 'date-fns';
 
-// --- CÁLCULO DE DATAS DE CARTÃO (CORRIGIDO) ---
+// --- CÁLCULO DE DATAS DE CARTÃO (Lógica Confirmada) ---
 export const calculateCardDates = (transactionDate: Date, closingDay: number, dueDay: number) => {
   const purchaseDate = startOfDay(new Date(transactionDate));
   
-  // Data de fechamento no mês da compra
+  // 1. Determina a data de fechamento NO MÊS DA COMPRA
   const closingDateThisMonth = setDate(new Date(purchaseDate), closingDay);
 
-  // Data base para o vencimento
-  let targetMonthDate = purchaseDate;
+  // 2. Define o "Mês de Competência da Fatura"
+  let referenceDate = purchaseDate;
 
-  // Se comprou DEPOIS do fechamento, a fatura é a do próximo mês
-  // Ex: Compra 15/11, Fechamento 14/11 -> Vai para fatura de Dezembro
-  if (isAfter(purchaseDate, closingDateThisMonth)) {
-    targetMonthDate = addMonths(purchaseDate, 1);
+  // REGRA: Se a compra for NO DIA do fechamento ou DEPOIS, pula para a próxima fatura
+  // Ex: Fechamento dia 30. Compra dia 30 -> Próxima Fatura.
+  if (isAfter(purchaseDate, closingDateThisMonth) || isEqual(purchaseDate, closingDateThisMonth)) {
+    referenceDate = addMonths(purchaseDate, 1);
   }
 
-  // Define o dia do vencimento no mês alvo
-  let finalDueDate = setDate(targetMonthDate, dueDay);
+  // 3. Define a Data de Pagamento (Vencimento)
+  let finalDueDate = setDate(referenceDate, dueDay);
 
-  // Ajuste para cartões onde o vencimento vira o mês em relação ao fechamento
-  // Ex: Fecha dia 25, Vence dia 05.
+  // REGRA DE PAGAMENTO CRUZADO:
+  // Se o dia do pagamento (ex: 06) for menor que o dia do fechamento (ex: 30),
+  // significa que a fatura fecha num mês e paga no outro.
+  // Ex: Fatura de Outubro (Fecha 30/10) -> Paga 06/11.
   if (dueDay < closingDay) {
     finalDueDate = addMonths(finalDueDate, 1);
   }
@@ -75,13 +77,9 @@ export const formatDate = (date: Date | string) => {
 
 // --- CÁLCULO DE LUCRO DE VENDA ---
 export const calculateSaleProfit = (totalSaleValue: number, quantity: number, currentAvgCpm: number) => {
-  // Custo das milhas vendidas baseado no CPM médio do estoque
   const costOfSoldMiles = (quantity / 1000) * currentAvgCpm;
-  
   const profit = totalSaleValue - costOfSoldMiles;
-  const profitPerThousand = (profit / quantity) * 1000;
-  
-  // Margem de lucro (%)
+  const profitPerThousand = quantity > 0 ? (profit / quantity) * 1000 : 0;
   const margin = costOfSoldMiles > 0 ? (profit / costOfSoldMiles) * 100 : 100;
 
   return {
