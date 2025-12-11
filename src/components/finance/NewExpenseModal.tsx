@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,7 +9,7 @@ import { useCreditCards, useCreatePayable, useCreatePayableInstallments } from '
 import { calculateCardDates } from '@/utils/financeLogic';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import { CreditCard, DollarSign } from 'lucide-react';
+import { CreditCard, DollarSign, CalendarIcon, AlignLeft } from 'lucide-react';
 import { addMonths, format } from 'date-fns';
 
 interface NewExpenseModalProps {
@@ -22,34 +22,89 @@ export function NewExpenseModal({ open, onOpenChange }: NewExpenseModalProps) {
   const createPayable = useCreatePayable();
   const createInstallments = useCreatePayableInstallments();
 
+  // Estados
   const [description, setDescription] = useState('');
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = useState(''); // Guarda a string formatada (R$)
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [useCreditCard, setUseCreditCard] = useState(false);
   const [cardId, setCardId] = useState('');
   const [installments, setInstallments] = useState('1');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!description || !amount) {
-      toast.error('Preencha a descrição e o valor');
+  // Resetar formulário ao abrir
+  useEffect(() => {
+    if (open) {
+      setDescription('');
+      setAmount('');
+      setDate(format(new Date(), 'yyyy-MM-dd'));
+      setUseCreditCard(false);
+      setCardId('');
+      setInstallments('1');
+    }
+  }, [open]);
+
+  // --- FUNÇÃO DE MÁSCARA DE DINHEIRO (UX DE BANCO) ---
+  const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    
+    // 1. Remove tudo que não é dígito
+    const numericValue = value.replace(/\D/g, '');
+
+    // 2. Se estiver vazio, reseta
+    if (numericValue === '') {
+      setAmount('');
       return;
     }
+
+    // 3. Converte para centavos e formata (Ex: 4651 -> 46.51 -> R$ 46,51)
+    const floatValue = parseFloat(numericValue) / 100;
+    const formatted = new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    }).format(floatValue);
+
+    setAmount(formatted);
+  };
+
+  // Função auxiliar para converter "R$ 46,51" de volta para número 46.51
+  const parseCurrency = (value: string) => {
+    if (!value) return 0;
+    return parseFloat(value.replace(/[^\d,]/g, '').replace(',', '.').replace('.', '')) / 100;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    // --- VALIDAÇÕES UX (BLINDAGEM) ---
+    if (!description || description.trim().length < 3) {
+      toast.error('A descrição precisa ser mais detalhada.');
+      return;
+    }
+
+    const valorNumerico = parseCurrency(amount);
+    if (valorNumerico <= 0) {
+      toast.error('O valor precisa ser maior que zero.');
+      return;
+    }
+
+    if (useCreditCard && !cardId) {
+      toast.error('Selecione qual cartão foi utilizado.');
+      return;
+    }
+    // ---------------------------------
 
     setIsSubmitting(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Usuário não logado');
 
-      const totalValue = parseFloat(amount);
       const numInstallments = parseInt(installments);
 
       // 1. Criar a Conta a Pagar (Cabeçalho)
       const payable = await createPayable.mutateAsync({
         user_id: user.id,
         description,
-        total_amount: totalValue,
+        total_amount: valorNumerico,
         installments: numInstallments,
         credit_card_id: useCreditCard ? cardId : null,
       });
@@ -57,7 +112,7 @@ export function NewExpenseModal({ open, onOpenChange }: NewExpenseModalProps) {
       // 2. Gerar Parcelas
       const installmentList = [];
       
-      // Data Base: Adiciona T12:00:00 para evitar bug de fuso horário
+      // Ajuste de fuso horário na data (T12:00:00)
       let baseDateString = date.includes('T') ? date : `${date}T12:00:00`;
       let firstDueDate = new Date(baseDateString);
 
@@ -69,7 +124,7 @@ export function NewExpenseModal({ open, onOpenChange }: NewExpenseModalProps) {
         }
       }
 
-      const installmentValue = totalValue / numInstallments;
+      const installmentValue = valorNumerico / numInstallments;
 
       for (let i = 0; i < numInstallments; i++) {
         const dueDate = addMonths(firstDueDate, i);
@@ -87,13 +142,9 @@ export function NewExpenseModal({ open, onOpenChange }: NewExpenseModalProps) {
 
       toast.success('Gasto registrado com sucesso!');
       onOpenChange(false);
-      // Reset form
-      setDescription('');
-      setAmount('');
-      setUseCreditCard(false);
     } catch (error) {
       console.error(error);
-      toast.error('Erro ao salvar gasto');
+      toast.error('Erro ao salvar gasto. Tente novamente.');
     } finally {
       setIsSubmitting(false);
     }
@@ -104,55 +155,77 @@ export function NewExpenseModal({ open, onOpenChange }: NewExpenseModalProps) {
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <DollarSign className="h-5 w-5 text-primary" />
+            <div className="p-2 bg-primary/10 rounded-full">
+              <DollarSign className="h-5 w-5 text-primary" />
+            </div>
             Novo Gasto Extra
           </DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        
+        <form onSubmit={handleSubmit} className="space-y-5 mt-2">
+          {/* Campo Descrição */}
           <div className="space-y-2">
-            <Label>Descrição</Label>
+            <Label className="flex items-center gap-2">
+              <AlignLeft className="h-4 w-4 text-muted-foreground" />
+              Descrição
+            </Label>
             <Input 
-              placeholder="Ex: Clube Smiles, Assinatura..." 
+              placeholder="Ex: Clube Smiles, Assinatura Netflix..." 
               value={description}
               onChange={e => setDescription(e.target.value)}
+              className="h-11"
+              autoFocus
             />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
+            {/* Campo Valor (COM MÁSCARA) */}
             <div className="space-y-2">
-              <Label>Valor Total</Label>
+              <Label className="flex items-center gap-2">
+                <DollarSign className="h-4 w-4 text-muted-foreground" />
+                Valor Total
+              </Label>
               <Input 
-                type="number" 
-                step="0.01" 
-                placeholder="0,00" 
+                type="text" 
+                inputMode="numeric"
+                placeholder="R$ 0,00" 
                 value={amount}
-                onChange={e => setAmount(e.target.value)}
+                onChange={handleAmountChange}
+                className="h-11 font-bold text-lg"
               />
             </div>
+
+            {/* Campo Data */}
             <div className="space-y-2">
-              <Label>Data Compra/Vencimento</Label>
+              <Label className="flex items-center gap-2">
+                <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+                Data Compra/Venc
+              </Label>
               <Input 
                 type="date" 
                 value={date}
                 onChange={e => setDate(e.target.value)}
+                className="h-11"
               />
             </div>
           </div>
 
-          <div className="flex items-center justify-between border p-3 rounded-md">
-            <Label className="flex items-center gap-2 cursor-pointer">
-              <CreditCard className="h-4 w-4" />
+          {/* Switch de Cartão */}
+          <div className="flex items-center justify-between border p-3 rounded-lg bg-muted/10">
+            <Label className="flex items-center gap-2 cursor-pointer font-medium">
+              <CreditCard className="h-4 w-4 text-primary" />
               Usou cartão de crédito?
             </Label>
             <Switch checked={useCreditCard} onCheckedChange={setUseCreditCard} />
           </div>
 
+          {/* Área Condicional do Cartão */}
           {useCreditCard && (
-            <div className="grid grid-cols-2 gap-4 p-3 bg-muted/20 rounded-md">
+            <div className="grid grid-cols-2 gap-4 p-4 bg-muted/20 rounded-lg border border-border/50 animate-in slide-in-from-top-2 duration-200">
               <div className="space-y-2">
                 <Label>Cartão</Label>
                 <Select value={cardId} onValueChange={setCardId}>
-                  <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                  <SelectTrigger className="h-10 bg-background"><SelectValue placeholder="Selecione" /></SelectTrigger>
                   <SelectContent>
                     {creditCards?.map(c => (
                       <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
@@ -163,7 +236,7 @@ export function NewExpenseModal({ open, onOpenChange }: NewExpenseModalProps) {
               <div className="space-y-2">
                 <Label>Parcelas</Label>
                 <Select value={installments} onValueChange={setInstallments}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-10 bg-background"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="1">1x (À vista)</SelectItem>
                     {[2,3,4,5,6,9,10,12].map(n => (
@@ -175,9 +248,13 @@ export function NewExpenseModal({ open, onOpenChange }: NewExpenseModalProps) {
             </div>
           )}
 
-          <div className="flex justify-end gap-2 pt-4">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-            <Button type="submit" disabled={isSubmitting}>Registrar</Button>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="h-11 px-6">
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={isSubmitting} className="h-11 px-6 font-semibold">
+              {isSubmitting ? 'Salvando...' : 'Registrar Gasto'}
+            </Button>
           </div>
         </form>
       </DialogContent>
