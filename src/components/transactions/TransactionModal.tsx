@@ -1,5 +1,5 @@
 import { subYears } from 'date-fns';
-import { useData } from '@/contexts/DataContext'; // Para pegar as vendas e verificar histórico
+import { useData } from '@/contexts/DataContext';
 import { useState, useEffect, useMemo } from 'react';
 import { format, addDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -29,7 +29,8 @@ import {
   CreditCard, 
   Calendar,
   Wallet,
-  AlertTriangle 
+  AlertTriangle,
+  CalendarCheck // Novo ícone
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
@@ -63,10 +64,8 @@ interface TransactionModalProps {
 }
 
 export function TransactionModal({ open, onOpenChange }: TransactionModalProps) {
-  // HOOKS DO CONTEXTO (PARA LIMITE CPF)
-  const { vendas, contas } = useData(); 
+  const { vendas } = useData(); 
 
-  // HOOKS DO REACT QUERY
   const { data: programs } = usePrograms();
   const { data: accounts } = useAccounts();
   const { data: creditCards } = useCreditCards();
@@ -85,9 +84,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
   const [programId, setProgramId] = useState('');
   const [transactionType, setTransactionType] = useState<TransactionType>('COMPRA');
   const [quantity, setQuantity] = useState('');
-  
   const [pricePerThousand, setPricePerThousand] = useState(''); 
-  
   const [transactionDate, setTransactionDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [expirationDate, setExpirationDate] = useState('');
   const [notes, setNotes] = useState('');
@@ -97,6 +94,8 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
   const [selectedCardId, setSelectedCardId] = useState('');
   const [installmentCount, setInstallmentCount] = useState('1');
   const [supplierId, setSupplierId] = useState('');
+  // Novo: Data de Vencimento Manual (para quando não é cartão)
+  const [manualDueDate, setManualDueDate] = useState('');
   
   // Sale specific
   const [useInstallments, setUseInstallments] = useState(false);
@@ -122,7 +121,9 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
       setTransactionType('COMPRA');
       setQuantity('');
       setPricePerThousand(''); 
-      setTransactionDate(format(new Date(), 'yyyy-MM-dd'));
+      const hoje = format(new Date(), 'yyyy-MM-dd');
+      setTransactionDate(hoje);
+      setManualDueDate(hoje); // Padrão: Vence hoje (À vista)
       setExpirationDate('');
       setNotes('');
       setUseCreditCard(false);
@@ -131,27 +132,32 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
       setSupplierId('');
       setUseInstallments(false);
       setSaleInstallments('1');
-      setFirstReceiveDate(format(new Date(), 'yyyy-MM-dd'));
+      setFirstReceiveDate(hoje);
       setClientId('');
     }
   }, [open]);
 
-  // Selected card
-  const selectedCard = useMemo(() => {
-    return creditCards?.find(c => c.id === selectedCardId);
-  }, [creditCards, selectedCardId]);
-
-  // First payment date
+  // Define a data do primeiro pagamento (Cartão ou Manual)
   const firstPaymentDate = useMemo(() => {
-    if (!useCreditCard || !selectedCard) {
-      return addDays(new Date(transactionDate), 30);
+    // Se for cartão, usa a lógica automática
+    if (useCreditCard && selectedCardId) {
+        const card = creditCards?.find(c => c.id === selectedCardId);
+        if (card) {
+            return calculateCardDates(
+                new Date(transactionDate),
+                card.closing_day,
+                card.due_day
+            );
+        }
     }
-    return calculateCardDates(
-      new Date(transactionDate),
-      selectedCard.closing_day,
-      selectedCard.due_day
-    );
-  }, [useCreditCard, selectedCard, transactionDate]);
+    
+    // Se não for cartão, usa a data manual (ou a data da transação se vazia)
+    if (manualDueDate) {
+        return new Date(manualDueDate);
+    }
+    
+    return new Date(transactionDate);
+  }, [useCreditCard, selectedCardId, transactionDate, manualDueDate, creditCards]);
 
   // Installment preview
   const installmentPreview = useMemo(() => {
@@ -183,34 +189,24 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
     return parseFloat(pricePerThousand) || 0;
   }, [pricePerThousand]);
 
-  // --- NOVO: LÓGICA DE ALERTA DE LIMITE CPF ---
+  // Alerta Limite CPF
   const cpfAlert = useMemo(() => {
     if (transactionType !== 'VENDA' || !programId || !accountId || !clientId) return null;
-
-    // 1. Busca limite do programa (com fallback para 25)
     const prog = programs?.find(p => p.id === programId);
-    // Usamos 'as any' caso o typescript do hook 'usePrograms' ainda não tenha a propriedade 'cpf_limit'
     const limite = (prog as any)?.cpf_limit || 25; 
-
-    // 2. Filtra vendas dessa conta nesse programa nos últimos 12 meses
     const umAnoAtras = subYears(new Date(), 1);
     const vendasRelevantes = vendas.filter(v => 
       v.contaId === accountId && 
       v.programaId === programId &&
       new Date(v.dataVenda) >= umAnoAtras
     );
-
-    // 3. Lista CPFs já usados
     const clientesUsados = new Set(vendasRelevantes.map(v => v.clienteId));
     const qtdUsados = clientesUsados.size;
-
-    // 4. Verifica se o cliente atual JÁ está na lista
     const clienteJaComprou = clientesUsados.has(clientId);
 
     if (clienteJaComprou) {
       return { type: 'success', msg: `Cliente já consta na lista de ${qtdUsados}/${limite}. Não consome nova cota.` };
     } else {
-      // Cliente Novo
       if (qtdUsados >= limite) {
         return { type: 'error', msg: `LIMITE ATINGIDO (${qtdUsados}/${limite})! Essa venda vai exceder a cota de CPFs.` };
       } else {
@@ -221,26 +217,19 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
     if (!accountId || !programId || !quantity || !pricePerThousand) {
       toast.error('Preencha todos os campos obrigatórios');
       return;
     }
-
     setIsSubmitting(true);
-
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        toast.error('Erro de permissão: Usuário não logado');
-        setIsSubmitting(false);
-        return;
-      }
+      if (!user) throw new Error('Usuário não logado');
 
       const value = calculatedTotal;
       const qty = parseInt(quantity);
 
+      // 1. Transação
       const transaction = await createTransaction.mutateAsync({
         account_id: accountId,
         program_id: programId,
@@ -256,20 +245,22 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
         user_id: user.id
       });
 
-      if (transactionType === 'COMPRA' && useCreditCard && selectedCardId) {
+      // 2. Contas a Pagar (Compra)
+      if (transactionType === 'COMPRA') {
         const program = programs?.find(p => p.id === programId);
         const account = accounts?.find(a => a.id === accountId);
         const description = `Compra Milhas - ${program?.name || 'Programa'} - ${account?.name || 'Conta'}`;
         
         const payable = await createPayable.mutateAsync({
           transaction_id: transaction.id,
-          credit_card_id: selectedCardId,
+          credit_card_id: useCreditCard ? selectedCardId : null,
           description,
           total_amount: value,
           installments: parseInt(installmentCount),
           user_id: user.id
         });
 
+        // Usa o 'installmentPreview' que já calculou as datas corretas (seja cartão ou manual)
         const installments = installmentPreview.map(inst => ({
           payable_id: payable.id,
           installment_number: inst.installmentNumber,
@@ -282,6 +273,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
         await createPayableInstallments.mutateAsync(installments);
       }
 
+      // 3. Contas a Receber (Venda)
       if (transactionType === 'VENDA' && useInstallments) {
         const program = programs?.find(p => p.id === programId);
         const client = clients?.find(c => c.id === clientId);
@@ -314,7 +306,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
       toast.success('Transação registrada com sucesso!');
       onOpenChange(false);
     } catch (error: any) {
-      console.error('Error creating transaction:', error);
+      console.error('Error:', error);
       toast.error('Erro ao registrar: ' + (error.message || 'Verifique os dados'));
     } finally {
       setIsSubmitting(false);
@@ -334,49 +326,28 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6">
+          {/* ... Campos de Conta e Programa (Sem alterações) ... */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Conta (CPF) *</Label>
               <Select value={accountId} onValueChange={setAccountId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione a conta" />
-                </SelectTrigger>
-                <SelectContent>
-                  {accounts?.map(acc => (
-                    <SelectItem key={acc.id} value={acc.id}>
-                      {acc.name} {acc.cpf && `(${acc.cpf})`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
+                <SelectTrigger><SelectValue placeholder="Selecione a conta" /></SelectTrigger>
+                <SelectContent>{accounts?.map(acc => (<SelectItem key={acc.id} value={acc.id}>{acc.name}</SelectItem>))}</SelectContent>
               </Select>
             </div>
-
             <div className="space-y-2">
               <Label>Programa *</Label>
               <Select value={programId} onValueChange={setProgramId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o programa" />
-                </SelectTrigger>
-                <SelectContent>
-                  {programs?.map(prog => (
-                    <SelectItem key={prog.id} value={prog.id}>
-                      {prog.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
+                <SelectTrigger><SelectValue placeholder="Selecione o programa" /></SelectTrigger>
+                <SelectContent>{programs?.map(prog => (<SelectItem key={prog.id} value={prog.id}>{prog.name}</SelectItem>))}</SelectContent>
               </Select>
             </div>
           </div>
 
           <div className="space-y-2">
             <Label>Tipo de Transação *</Label>
-            <Select 
-              value={transactionType} 
-              onValueChange={(v) => setTransactionType(v as TransactionType)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
+            <Select value={transactionType} onValueChange={(v) => setTransactionType(v as TransactionType)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="COMPRA">Compra</SelectItem>
                 <SelectItem value="VENDA">Venda</SelectItem>
@@ -394,159 +365,49 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Quantidade de Milhas *</Label>
-              <Input
-                type="number"
-                value={quantity}
-                onChange={e => setQuantity(e.target.value)}
-                placeholder="Ex: 50000"
-                min="1"
-              />
+              <Input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} placeholder="Ex: 50000" min="1" />
             </div>
-
             <div className="space-y-2">
-              <Label>
-                {transactionType === 'VENDA' ? 'Valor Venda (Milheiro) *' : 'Valor Compra (Milheiro) *'}
-              </Label>
+              <Label>{transactionType === 'VENDA' ? 'Valor Venda (Milheiro) *' : 'Valor Compra (Milheiro) *'}</Label>
               <div className="space-y-1">
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={pricePerThousand}
-                  onChange={e => setPricePerThousand(e.target.value)}
-                  placeholder="Ex: 17.50"
-                  min="0"
-                />
-                <div className="text-right text-sm font-medium text-muted-foreground">
-                  Total: {formatCurrency(calculatedTotal)}
-                </div>
+                <Input type="number" step="0.01" value={pricePerThousand} onChange={e => setPricePerThousand(e.target.value)} placeholder="Ex: 17.50" min="0" />
+                <div className="text-right text-sm font-medium text-muted-foreground">Total: {formatCurrency(calculatedTotal)}</div>
               </div>
             </div>
           </div>
 
+          {/* ... Previews de CPM e Lucro (Sem alterações) ... */}
           {transactionType === 'COMPRA' && purchaseCpm > 0 && (
-            <Card className="bg-muted/30">
-              <CardContent className="pt-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground">CPM desta compra:</span>
-                  <Badge variant="secondary" className="text-lg">
-                    {formatCPM(purchaseCpm)}
-                  </Badge>
-                </div>
-              </CardContent>
-            </Card>
+            <Card className="bg-muted/30"><CardContent className="pt-4"><div className="flex justify-between items-center"><span className="text-sm text-muted-foreground">CPM desta compra:</span><Badge variant="secondary" className="text-lg">{formatCPM(purchaseCpm)}</Badge></div></CardContent></Card>
           )}
-
           {transactionType === 'VENDA' && saleProfit && (
-            <Card className={saleProfit.profit >= 0 ? 'bg-success/10 border-success/30' : 'bg-destructive/10 border-destructive/30'}>
-              <CardContent className="pt-4 space-y-2">
-                <div className="flex items-center gap-2 mb-2">
-                  {saleProfit.profit >= 0 ? (
-                    <TrendingUp className="h-4 w-4 text-success" />
-                  ) : (
-                    <AlertTriangle className="h-4 w-4 text-destructive" />
-                  )}
-                  <span className="font-medium">Previsão de Lucro</span>
-                </div>
-                <div className="grid grid-cols-3 gap-4 text-sm">
-                  <div>
-                    <span className="text-muted-foreground">Lucro Total</span>
-                    <div className={`font-bold ${saleProfit.profit >= 0 ? 'text-success' : 'text-destructive'}`}>
-                      {formatCurrency(saleProfit.profit)}
-                    </div>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Lucro/Milheiro</span>
-                    <div className={`font-bold ${saleProfit.profitPerThousand >= 0 ? 'text-success' : 'text-destructive'}`}>
-                      {formatCPM(saleProfit.profitPerThousand)}
-                    </div>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Margem</span>
-                    <div className={`font-bold ${saleProfit.margin >= 0 ? 'text-success' : 'text-destructive'}`}>
-                      {saleProfit.margin.toFixed(1)}%
-                    </div>
-                  </div>
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  Baseado no CPM médio atual: {formatCPM(avgCpm)}
-                </div>
-              </CardContent>
-            </Card>
+            <Card className={saleProfit.profit >= 0 ? 'bg-success/10 border-success/30' : 'bg-destructive/10 border-destructive/30'}><CardContent className="pt-4 space-y-2"><div className="flex items-center gap-2 mb-2">{saleProfit.profit >= 0 ? (<TrendingUp className="h-4 w-4 text-success" />) : (<AlertTriangle className="h-4 w-4 text-destructive" />)}<span className="font-medium">Previsão de Lucro</span></div><div className="grid grid-cols-3 gap-4 text-sm"><div><span className="text-muted-foreground">Lucro Total</span><div className={`font-bold ${saleProfit.profit >= 0 ? 'text-success' : 'text-destructive'}`}>{formatCurrency(saleProfit.profit)}</div></div><div><span className="text-muted-foreground">Lucro/Milheiro</span><div className={`font-bold ${saleProfit.profitPerThousand >= 0 ? 'text-success' : 'text-destructive'}`}>{formatCPM(saleProfit.profitPerThousand)}</div></div><div><span className="text-muted-foreground">Margem</span><div className={`font-bold ${saleProfit.margin >= 0 ? 'text-success' : 'text-destructive'}`}>{saleProfit.margin.toFixed(1)}%</div></div></div></CardContent></Card>
           )}
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Data da Transação</Label>
-              <Input
-                type="date"
-                value={transactionDate}
-                onChange={e => setTransactionDate(e.target.value)}
-              />
+              <Input type="date" value={transactionDate} onChange={e => setTransactionDate(e.target.value)} />
             </div>
-
             {transactionType === 'COMPRA' && (
               <div className="space-y-2">
                 <Label>Data de Expiração</Label>
-                <Input
-                  type="date"
-                  value={expirationDate}
-                  onChange={e => setExpirationDate(e.target.value)}
-                />
+                <Input type="date" value={expirationDate} onChange={e => setExpirationDate(e.target.value)} />
               </div>
             )}
           </div>
 
+          {/* ... Seletores de Fornecedor/Cliente (Sem alterações) ... */}
           {transactionType === 'COMPRA' && (
-            <div className="space-y-2">
-              <Label>Fornecedor</Label>
-              <Select value={supplierId} onValueChange={setSupplierId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o fornecedor (opcional)" />
-                </SelectTrigger>
-                <SelectContent>
-                  {suppliers?.map(sup => (
-                    <SelectItem key={sup.id} value={sup.id}>
-                      {sup.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <div className="space-y-2"><Label>Fornecedor</Label><Select value={supplierId} onValueChange={setSupplierId}><SelectTrigger><SelectValue placeholder="Selecione (opcional)" /></SelectTrigger><SelectContent>{suppliers?.map(sup => (<SelectItem key={sup.id} value={sup.id}>{sup.name}</SelectItem>))}</SelectContent></Select></div>
           )}
-
           {transactionType === 'VENDA' && (
-            <div className="space-y-2">
-              <Label>Cliente</Label>
-              <Select value={clientId} onValueChange={setClientId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o cliente (opcional)" />
-                </SelectTrigger>
-                <SelectContent>
-                  {clients?.map(cli => (
-                    <SelectItem key={cli.id} value={cli.id}>
-                      {cli.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              {/* --- AVISO DE LIMITE DE CPF (NOVO) --- */}
-              {cpfAlert && (
-                <div className={`text-xs p-2 rounded border mt-2 flex items-center gap-2 ${
-                  cpfAlert.type === 'error' ? 'bg-destructive/10 text-destructive border-destructive/20' :
-                  cpfAlert.type === 'success' ? 'bg-success/10 text-success border-success/20' :
-                  'bg-warning/10 text-warning border-warning/20'
-                }`}>
-                  {cpfAlert.type === 'error' && <AlertTriangle className="h-3 w-3" />}
-                  {cpfAlert.type === 'success' && <TrendingUp className="h-3 w-3" />} 
-                  {cpfAlert.msg}
-                </div>
-              )}
-            </div>
+            <div className="space-y-2"><Label>Cliente</Label><Select value={clientId} onValueChange={setClientId}><SelectTrigger><SelectValue placeholder="Selecione (opcional)" /></SelectTrigger><SelectContent>{clients?.map(cli => (<SelectItem key={cli.id} value={cli.id}>{cli.name}</SelectItem>))}</SelectContent></Select>{cpfAlert && (<div className={`text-xs p-2 rounded border mt-2 flex items-center gap-2 ${cpfAlert.type === 'error' ? 'bg-destructive/10 text-destructive border-destructive/20' : cpfAlert.type === 'success' ? 'bg-success/10 text-success border-success/20' : 'bg-warning/10 text-warning border-warning/20'}`}>{cpfAlert.type === 'error' && <AlertTriangle className="h-3 w-3" />}{cpfAlert.type === 'success' && <TrendingUp className="h-3 w-3" />}{cpfAlert.msg}</div>)}</div>
           )}
 
           <Separator />
 
+          {/* ÁREA DE PAGAMENTO - COMPRAS */}
           {transactionType === 'COMPRA' && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -557,135 +418,85 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
                 <Switch checked={useCreditCard} onCheckedChange={setUseCreditCard} />
               </div>
 
-              {useCreditCard && (
+              {/* SELEÇÃO DO CARTÃO */}
+              {useCreditCard ? (
                 <div className="space-y-4 p-4 border rounded-lg bg-muted/20">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Cartão</Label>
                       <Select value={selectedCardId} onValueChange={setSelectedCardId}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione o cartão" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {creditCards?.map(card => (
-                            <SelectItem key={card.id} value={card.id}>
-                              {card.name} (Fecha: {card.closing_day} | Vence: {card.due_day})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
+                        <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                        <SelectContent>{creditCards?.map(card => (<SelectItem key={card.id} value={card.id}>{card.name} (Fecha: {card.closing_day})</SelectItem>))}</SelectContent>
                       </Select>
                     </div>
-
                     <div className="space-y-2">
                       <Label>Parcelas</Label>
                       <Select value={installmentCount} onValueChange={setInstallmentCount}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Array.from({ length: 12 }, (_, i) => i + 1).map(n => (
-                            <SelectItem key={n} value={n.toString()}>
-                              {n}x de {formatCurrency(calculatedTotal / n)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>{Array.from({ length: 12 }, (_, i) => i + 1).map(n => (<SelectItem key={n} value={n.toString()}>{n}x de {formatCurrency(calculatedTotal / n)}</SelectItem>))}</SelectContent>
                       </Select>
                     </div>
                   </div>
-
-                  {installmentPreview.length > 0 && selectedCardId && (
-                    <Card>
-                      <CardContent className="pt-4">
-                        <div className="flex items-center gap-2 mb-3">
-                          <Calendar className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-sm font-medium">Previsão de Parcelas</span>
-                        </div>
-                        <div className="space-y-2 max-h-40 overflow-y-auto">
-                          {installmentPreview.map(inst => (
-                            <div 
-                              key={inst.installmentNumber}
-                              className="flex justify-between items-center text-sm p-2 rounded bg-background"
-                            >
-                              <span className="text-muted-foreground">
-                                {inst.installmentNumber}ª parcela - {format(inst.dueDate, 'dd/MM/yyyy', { locale: ptBR })}
-                              </span>
-                              <span className="font-medium">{formatCurrency(inst.amount)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
                 </div>
-              )}
-            </div>
-          )}
-
-          {transactionType === 'VENDA' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <Label className="flex items-center gap-2">
-                  <Calendar className="h-4 w-4" />
-                  Recebimento Parcelado?
-                </Label>
-                <Switch checked={useInstallments} onCheckedChange={setUseInstallments} />
-              </div>
-
-              {useInstallments && (
-                <div className="space-y-4 p-4 border rounded-lg bg-muted/20">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Parcelas</Label>
-                      <Select value={saleInstallments} onValueChange={setSaleInstallments}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Array.from({ length: 12 }, (_, i) => i + 1).map(n => (
-                            <SelectItem key={n} value={n.toString()}>
-                              {n}x de {formatCurrency(calculatedTotal / n)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Data do 1º Recebimento</Label>
-                      <Input
-                        type="date"
-                        value={firstReceiveDate}
-                        onChange={e => setFirstReceiveDate(e.target.value)}
+              ) : (
+                // INPUT MANUAL PARA QUANDO NÃO É CARTÃO
+                <div className="space-y-4 p-4 border rounded-lg bg-muted/10">
+                   <div className="space-y-2">
+                      <Label className="flex items-center justify-between">
+                         Data do Pagamento (Vencimento)
+                         <Button 
+                           type="button" 
+                           variant="ghost" 
+                           size="sm" 
+                           className="h-6 text-xs text-primary"
+                           onClick={() => setManualDueDate(format(new Date(), 'yyyy-MM-dd'))}
+                         >
+                           <CalendarCheck className="w-3 h-3 mr-1"/>
+                           Pagar Hoje
+                         </Button>
+                      </Label>
+                      <Input 
+                        type="date" 
+                        value={manualDueDate} 
+                        onChange={e => setManualDueDate(e.target.value)} 
                       />
-                    </div>
-                  </div>
+                      <p className="text-xs text-muted-foreground">
+                        Selecione quando o dinheiro sairá da conta.
+                      </p>
+                   </div>
                 </div>
+              )}
+
+              {/* PREVIEW DAS PARCELAS */}
+              {installmentPreview.length > 0 && (
+                <Card>
+                  <CardContent className="pt-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Calendar className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm font-medium">Previsão de Pagamentos</span>
+                    </div>
+                    <div className="space-y-2 max-h-40 overflow-y-auto">
+                      {installmentPreview.map(inst => (
+                        <div key={inst.installmentNumber} className="flex justify-between items-center text-sm p-2 rounded bg-background">
+                          <span className="text-muted-foreground">{inst.installmentNumber}ª parcela - {format(inst.dueDate, 'dd/MM/yyyy', { locale: ptBR })}</span>
+                          <span className="font-medium">{formatCurrency(inst.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
               )}
             </div>
           )}
 
-          <div className="space-y-2">
-            <Label>Observações</Label>
-            <Input
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              placeholder="Observações (opcional)"
-            />
-          </div>
+          {/* ... Vendas Parceladas (Sem alterações, pois é recebimento) ... */}
+          {transactionType === 'VENDA' && (
+            <div className="space-y-4"><div className="flex items-center justify-between"><Label className="flex items-center gap-2"><Calendar className="h-4 w-4" />Recebimento Parcelado?</Label><Switch checked={useInstallments} onCheckedChange={setUseInstallments} /></div>{useInstallments && (<div className="space-y-4 p-4 border rounded-lg bg-muted/20"><div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Parcelas</Label><Select value={saleInstallments} onValueChange={setSaleInstallments}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Array.from({ length: 12 }, (_, i) => i + 1).map(n => (<SelectItem key={n} value={n.toString()}>{n}x de {formatCurrency(calculatedTotal / n)}</SelectItem>))}</SelectContent></Select></div><div className="space-y-2"><Label>Data do 1º Recebimento</Label><Input type="date" value={firstReceiveDate} onChange={e => setFirstReceiveDate(e.target.value)} /></div></div></div>)}</div>
+          )}
 
-          <div className="flex justify-end gap-2 pt-4">
-            <Button 
-              type="button" 
-              variant="outline" 
-              onClick={() => onOpenChange(false)}
-              disabled={isSubmitting}
-            >
-              Cancelar
-            </Button>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Salvando...' : 'Registrar Transação'}
-            </Button>
-          </div>
+          <div className="space-y-2"><Label>Observações</Label><Input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Observações (opcional)" /></div>
+
+          <div className="flex justify-end gap-2 pt-4"><Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>Cancelar</Button><Button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Salvando...' : 'Registrar Transação'}</Button></div>
         </form>
       </DialogContent>
     </Dialog>
