@@ -15,26 +15,52 @@ import {
   Package,
   Wallet,
   LogOut,
-User,
-  ShieldCheck, 
-  ArrowRightLeft, // <--- ADICIONE ESTE ÍCONE
+  User,
+  ShieldCheck,
+  ArrowRightLeft,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState, useEffect } from 'react';
 
-const menuItems = [
-  { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
-  { icon: Package, label: 'Estoque', path: '/estoque' },
-  { icon: ShoppingCart, label: 'Compras', path: '/compras' },
-  { icon: DollarSign, label: 'Vendas', path: '/vendas' },
-{ icon: Receipt, label: 'Financeiro', path: '/financeiro' },
-  { icon: ArrowRightLeft, label: 'Transferências', path: '/transferencias' }, // <--- ADICIONE ESTA LINHA
-  { icon: Wallet, label: 'Cartões', path: '/cartoes' },
-  { icon: ShieldCheck, label: 'Limites CPF', path: '/limites' },
-  { icon: Users, label: 'Clientes', path: '/clientes' },
-  { icon: Truck, label: 'Fornecedores', path: '/fornecedores' },
-  { icon: Plane, label: 'Programas', path: '/programas' },
-  { icon: UserCircle, label: 'Contas', path: '/contas' },
+// NOVA ESTRUTURA DE GRUPOS
+const menuGroups = [
+  {
+    title: "Principal",
+    items: [
+      { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
+    ]
+  },
+  {
+    title: "Operacional",
+    items: [
+      { icon: Package, label: 'Estoque', path: '/estoque' },
+      { icon: ShoppingCart, label: 'Compras', path: '/compras' },
+      { icon: DollarSign, label: 'Vendas', path: '/vendas' },
+      { icon: ArrowRightLeft, label: 'Transferências', path: '/transferencias' },
+    ]
+  },
+  {
+    title: "Financeiro",
+    items: [
+      { icon: Receipt, label: 'Fluxo de Caixa', path: '/financeiro' },
+      { icon: Wallet, label: 'Cartões', path: '/cartoes' },
+    ]
+  },
+  {
+    title: "Gestão e Cadastros",
+    items: [
+      { icon: UserCircle, label: 'Contas (CPFs)', path: '/contas' },
+      { icon: Plane, label: 'Programas', path: '/programas' },
+      { icon: Users, label: 'Clientes', path: '/clientes' },
+      { icon: Truck, label: 'Fornecedores', path: '/fornecedores' },
+    ]
+  },
+  {
+    title: "Segurança",
+    items: [
+      { icon: ShieldCheck, label: 'Limites CPF', path: '/limites' },
+    ]
+  }
 ];
 
 export const Sidebar = () => {
@@ -91,33 +117,45 @@ export const Sidebar = () => {
           </Button>
         </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 space-y-1 p-2 overflow-y-auto scrollbar-hide">
-          {menuItems.map((item) => (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              className={({ isActive }) =>
-                cn(
-                  'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200',
-                  collapsed ? 'justify-center' : '',
-                  isActive
-                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                    : 'text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground'
-                )
-              }
-              title={collapsed ? item.label : undefined}
-            >
-              <item.icon className="h-5 w-5 flex-shrink-0" />
-              {!collapsed && <span>{item.label}</span>}
-            </NavLink>
+        {/* Navigation com Grupos */}
+        <nav className="flex-1 overflow-y-auto scrollbar-hide py-4 px-2 space-y-6">
+          {menuGroups.map((group, groupIndex) => (
+            <div key={groupIndex}>
+              {/* Título do Grupo (Só aparece se não estiver colapsado) */}
+              {!collapsed && (
+                <h3 className="mb-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  {group.title}
+                </h3>
+              )}
+              
+              <div className="space-y-1">
+                {group.items.map((item) => (
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    className={({ isActive }) =>
+                      cn(
+                        'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200',
+                        collapsed ? 'justify-center' : '',
+                        isActive
+                          ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                          : 'text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground'
+                      )
+                    }
+                    title={collapsed ? item.label : undefined}
+                  >
+                    <item.icon className="h-5 w-5 flex-shrink-0" />
+                    {!collapsed && <span>{item.label}</span>}
+                  </NavLink>
+                ))}
+              </div>
+            </div>
           ))}
         </nav>
 
         {/* Footer com Perfil + Logout */}
         <div className="border-t border-sidebar-border p-4 bg-sidebar-accent/10">
           
-          {/* Seção do Usuário */}
           {userInfo && (
             <div className={cn("flex items-center gap-3 mb-4", collapsed ? "justify-center" : "")}>
               <div className="relative flex-shrink-0">
@@ -148,7 +186,6 @@ export const Sidebar = () => {
             </div>
           )}
 
-          {/* Botão de Sair */}
           <button
             onClick={handleLogout}
             className={cn(
