@@ -1,166 +1,619 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { DataTable } from '@/components/ui/data-table';
+import { StatusBadge } from '@/components/ui/status-badge';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { TransactionModal } from '@/components/transactions/TransactionModal';
-import { usePayableInstallments, useReceivableInstallments } from '@/hooks/useSupabaseData';
-import { formatCurrency, formatDate } from '@/utils/financeLogic';
-import { format, startOfMonth, endOfMonth, isWithinInterval, addMonths, subMonths, parseISO } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
-import { Plus, Check, X, Filter } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { 
+  Check, 
+  CreditCard, 
+  Calendar, 
+  Plus,
+  TrendingDown,
+  TrendingUp,
+  DollarSign
+} from 'lucide-react';
+import { format, isBefore, startOfDay, startOfMonth, endOfMonth, addMonths } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+import { toast } from 'sonner';
+import { 
+  usePayableInstallments, 
+  useUpdatePayableInstallment,
+  useReceivableInstallments,
+  useUpdateReceivableInstallment,
+  useCreditCards,
+  useCreatePayable,
+  useCreatePayableInstallments,
+} from '@/hooks/useSupabaseData';
+import { formatCurrency, generateInstallments, calculateCardDates } from '@/utils/financeLogic';
 
 const Financeiro = () => {
-  const [mesSelecionado, setMesSelecionado] = useState(format(new Date(), 'yyyy-MM'));
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const { data: payableInstallments, isLoading: loadingPayables } = usePayableInstallments();
+  const { data: receivableInstallments, isLoading: loadingReceivables } = useReceivableInstallments();
+  const { data: creditCards } = useCreditCards();
+  
+  const updatePayableInstallment = useUpdatePayableInstallment();
+  const updateReceivableInstallment = useUpdateReceivableInstallment();
+  const createPayable = useCreatePayable();
+  const createPayableInstallments = useCreatePayableInstallments();
 
-  const { data: contasPagar } = usePayableInstallments();
-  const { data: contasReceber } = useReceivableInstallments();
+  const [activeTab, setActiveTab] = useState('pagar');
+  const [monthFilter, setMonthFilter] = useState(format(new Date(), 'yyyy-MM'));
+  const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
+  
+  // Expense form state
+  const [expenseForm, setExpenseForm] = useState({
+    description: '',
+    totalValue: '',
+    category: 'OUTROS',
+    useCreditCard: false,
+    creditCardId: '',
+    installments: '1',
+    purchaseDate: format(new Date(), 'yyyy-MM-dd'),
+  });
 
-  // --- FILTRAGEM RIGOROSA DO MÊS ---
-  const { inicioMes, finalMes } = useMemo(() => {
-    const [ano, mes] = mesSelecionado.split('-');
-    const dataBase = new Date(parseInt(ano), parseInt(mes) - 1, 1);
-    // Usamos hora 12:00 para evitar problemas de fuso na comparação
-    dataBase.setHours(12, 0, 0, 0);
-    return {
-      inicioMes: startOfMonth(dataBase),
-      finalMes: endOfMonth(dataBase)
-    };
-  }, [mesSelecionado]);
-
-  // Função auxiliar para verificar se a data cai no mês
-  const pertenceAoMes = (dataString: string) => {
-    if (!dataString) return false;
-    // Adiciona T12:00:00 para garantir leitura correta
-    const data = new Date(dataString.includes('T') ? dataString : `${dataString}T12:00:00`);
-    return isWithinInterval(data, { start: inicioMes, end: finalMes });
+  // Filter by month
+  const filterByMonth = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const filterStart = startOfMonth(new Date(monthFilter + '-01'));
+    const filterEnd = endOfMonth(filterStart);
+    return date >= filterStart && date <= filterEnd;
   };
 
-  const aPagarFiltrado = useMemo(() => {
-    return contasPagar?.filter(c => pertenceAoMes(c.due_date)) || [];
-  }, [contasPagar, mesSelecionado]);
+  // Process payable installments
+  const processedPayables = payableInstallments
+    ?.map(inst => {
+      const isOverdue = inst.status === 'pendente' && isBefore(new Date(inst.due_date), startOfDay(new Date()));
+      return {
+        ...inst,
+        displayStatus: isOverdue ? 'vencido' : inst.status,
+      };
+    })
+    .filter(inst => filterByMonth(inst.due_date)) || [];
 
-  const aReceberFiltrado = useMemo(() => {
-    return contasReceber?.filter(c => pertenceAoMes(c.due_date)) || [];
-  }, [contasReceber, mesSelecionado]);
+  // Process receivable installments
+  const processedReceivables = receivableInstallments
+    ?.map(inst => {
+      const isOverdue = inst.status === 'pendente' && isBefore(new Date(inst.due_date), startOfDay(new Date()));
+      return {
+        ...inst,
+        displayStatus: isOverdue ? 'vencido' : inst.status,
+      };
+    })
+    .filter(inst => filterByMonth(inst.due_date)) || [];
 
-  // Totais do Mês
-  const totalPagar = aPagarFiltrado.reduce((acc, c) => acc + Number(c.amount), 0);
-  const totalReceber = aReceberFiltrado.reduce((acc, c) => acc + Number(c.amount), 0);
-  const saldoMes = totalReceber - totalPagar;
+  // Calculate summaries
+  const payableSummary = {
+    pending: processedPayables.filter(i => i.status === 'pendente').reduce((acc, i) => acc + Number(i.amount), 0),
+    overdue: processedPayables.filter(i => i.displayStatus === 'vencido').reduce((acc, i) => acc + Number(i.amount), 0),
+    paid: processedPayables.filter(i => i.status === 'pago').reduce((acc, i) => acc + Number(i.amount), 0),
+  };
+
+  const receivableSummary = {
+    pending: processedReceivables.filter(i => i.status === 'pendente').reduce((acc, i) => acc + Number(i.amount), 0),
+    overdue: processedReceivables.filter(i => i.displayStatus === 'vencido').reduce((acc, i) => acc + Number(i.amount), 0),
+    received: processedReceivables.filter(i => i.status === 'pago').reduce((acc, i) => acc + Number(i.amount), 0),
+  };
+
+  const handlePagar = async (id: string) => {
+    try {
+      await updatePayableInstallment.mutateAsync({
+        id,
+        status: 'pago',
+        paid_date: format(new Date(), 'yyyy-MM-dd'),
+      });
+      toast.success('Parcela marcada como paga!');
+    } catch (error) {
+      toast.error('Erro ao atualizar parcela');
+    }
+  };
+
+  const handleReceber = async (id: string) => {
+    try {
+      await updateReceivableInstallment.mutateAsync({
+        id,
+        status: 'pago',
+        received_date: format(new Date(), 'yyyy-MM-dd'),
+      });
+      toast.success('Parcela marcada como recebida!');
+    } catch (error) {
+      toast.error('Erro ao atualizar parcela');
+    }
+  };
+
+  const handleAddExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    try {
+      const totalValue = parseFloat(expenseForm.totalValue);
+      const installmentCount = parseInt(expenseForm.installments);
+      
+      let firstDueDate: Date;
+      
+      if (expenseForm.useCreditCard && expenseForm.creditCardId) {
+        const card = creditCards?.find(c => c.id === expenseForm.creditCardId);
+        firstDueDate = calculateCardDates(
+          new Date(expenseForm.purchaseDate),
+          card?.closing_day || null,
+          card?.due_day || null
+        );
+      } else {
+        firstDueDate = addMonths(new Date(expenseForm.purchaseDate), 1);
+      }
+
+      const payable = await createPayable.mutateAsync({
+        description: expenseForm.description,
+        total_amount: totalValue,
+        installments: installmentCount,
+        credit_card_id: expenseForm.useCreditCard ? expenseForm.creditCardId : null,
+      });
+
+      const installments = generateInstallments(totalValue, installmentCount, firstDueDate);
+      
+      await createPayableInstallments.mutateAsync(
+        installments.map(inst => ({
+          payable_id: payable.id,
+          installment_number: inst.installmentNumber,
+          amount: inst.amount,
+          due_date: format(inst.dueDate, 'yyyy-MM-dd'),
+          status: 'pendente' as const,
+        }))
+      );
+
+      toast.success('Gasto registrado com sucesso!');
+      setIsExpenseModalOpen(false);
+      setExpenseForm({
+        description: '',
+        totalValue: '',
+        category: 'OUTROS',
+        useCreditCard: false,
+        creditCardId: '',
+        installments: '1',
+        purchaseDate: format(new Date(), 'yyyy-MM-dd'),
+      });
+    } catch (error) {
+      toast.error('Erro ao registrar gasto');
+    }
+  };
+
+  // Extract category from description
+  const getCategoryBadge = (description: string) => {
+    if (description.toLowerCase().includes('compra milhas')) {
+      return <Badge variant="default">Compra Milhas</Badge>;
+    }
+    if (description.toLowerCase().includes('clube')) {
+      return <Badge variant="secondary">Clube/Assinatura</Badge>;
+    }
+    if (description.toLowerCase().includes('taxa')) {
+      return <Badge variant="outline">Taxa</Badge>;
+    }
+    return <Badge variant="outline">Outros</Badge>;
+  };
+
+  const payableColumns = [
+    {
+      key: 'due_date',
+      header: 'Vencimento',
+      render: (inst: any) => (
+        <div className="flex items-center gap-2">
+          <Calendar className="h-4 w-4 text-muted-foreground" />
+          {format(new Date(inst.due_date), 'dd/MM/yyyy', { locale: ptBR })}
+        </div>
+      ),
+    },
+    {
+      key: 'description',
+      header: 'Descrição',
+      render: (inst: any) => (
+        <div className="space-y-1">
+          <div className="font-medium">{inst.payables?.description}</div>
+          <div className="flex items-center gap-2">
+            {getCategoryBadge(inst.payables?.description || '')}
+            {inst.payables?.credit_cards?.name && (
+              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                <CreditCard className="h-3 w-3" />
+                {inst.payables.credit_cards.name}
+              </span>
+            )}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'installment_number',
+      header: 'Parcela',
+      render: (inst: any) => (
+        <Badge variant="outline">
+          {inst.installment_number}/{inst.payables?.installments || 1}
+        </Badge>
+      ),
+    },
+    {
+      key: 'amount',
+      header: 'Valor',
+      render: (inst: any) => (
+        <span className="font-medium">
+          {formatCurrency(inst.amount)}
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (inst: any) => <StatusBadge status={inst.displayStatus} />,
+    },
+    {
+      key: 'actions',
+      header: 'Ações',
+      render: (inst: any) => (
+        <div className="flex gap-2">
+          {inst.status !== 'pago' && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => handlePagar(inst.id)}
+              title="Marcar como pago"
+            >
+              <Check className="h-4 w-4 text-success" />
+            </Button>
+          )}
+        </div>
+      ),
+    },
+  ];
+
+  const receivableColumns = [
+    {
+      key: 'due_date',
+      header: 'Vencimento',
+      render: (inst: any) => (
+        <div className="flex items-center gap-2">
+          <Calendar className="h-4 w-4 text-muted-foreground" />
+          {format(new Date(inst.due_date), 'dd/MM/yyyy', { locale: ptBR })}
+        </div>
+      ),
+    },
+    {
+      key: 'description',
+      header: 'Descrição',
+      render: (inst: any) => (
+        <div className="font-medium">{inst.receivables?.description}</div>
+      ),
+    },
+    {
+      key: 'installment_number',
+      header: 'Parcela',
+      render: (inst: any) => (
+        <Badge variant="outline">
+          {inst.installment_number}/{inst.receivables?.installments || 1}
+        </Badge>
+      ),
+    },
+    {
+      key: 'amount',
+      header: 'Valor',
+      render: (inst: any) => (
+        <span className="font-medium text-success">
+          {formatCurrency(inst.amount)}
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (inst: any) => <StatusBadge status={inst.displayStatus} />,
+    },
+    {
+      key: 'actions',
+      header: 'Ações',
+      render: (inst: any) => (
+        <div className="flex gap-2">
+          {inst.status !== 'pago' && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => handleReceber(inst.id)}
+              title="Marcar como recebido"
+            >
+              <Check className="h-4 w-4 text-success" />
+            </Button>
+          )}
+        </div>
+      ),
+    },
+  ];
+
+  // Generate month options
+  const monthOptions = Array.from({ length: 12 }, (_, i) => {
+    const date = addMonths(new Date(), i - 3);
+    return {
+      value: format(date, 'yyyy-MM'),
+      label: format(date, 'MMMM yyyy', { locale: ptBR }),
+    };
+  });
+
+  if (loadingPayables || loadingReceivables) {
+    return (
+      <MainLayout>
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout>
-      <PageHeader 
-        title="Fluxo de Caixa" 
-        description="Gestão de contas a pagar e receber"
-        action={
-          <Button onClick={() => setIsModalOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" /> Novo Lançamento
-          </Button>
-        }
+      <PageHeader
+        title="Financeiro"
+        description="Gerencie suas contas a pagar e receber"
       />
 
-      {/* --- BARRA DE FILTROS --- */}
-      <div className="flex items-center gap-4 mb-6 bg-muted/20 p-4 rounded-lg border border-border/50">
-        <div className="flex items-center gap-2 text-muted-foreground text-sm">
-          <Filter className="h-4 w-4" /> Período:
+      {/* Month Filter */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2">
+          <Calendar className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm text-muted-foreground">Período:</span>
+          <Select value={monthFilter} onValueChange={setMonthFilter}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {monthOptions.map(opt => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-        <Select value={mesSelecionado} onValueChange={setMesSelecionado}>
-          <SelectTrigger className="w-[200px] bg-background">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {Array.from({ length: 13 }, (_, i) => {
-              const d = addMonths(subMonths(new Date(), 2), i); // Mostra 2 meses atrás até 10 meses na frente
-              const valor = format(d, 'yyyy-MM');
-              const label = format(d, 'MMMM yyyy', { locale: ptBR });
-              return <SelectItem key={valor} value={valor}>{label.charAt(0).toUpperCase() + label.slice(1)}</SelectItem>;
-            })}
-          </SelectContent>
-        </Select>
+
+        <Button onClick={() => setIsExpenseModalOpen(true)} variant="outline">
+          <Plus className="h-4 w-4 mr-2" />
+          Novo Gasto Extra
+        </Button>
       </div>
 
-      {/* --- CARDS RESUMO --- */}
-      <div className="grid gap-4 md:grid-cols-3 mb-8">
-        <Card className="border-l-4 border-l-destructive">
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-destructive">A Pagar</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold">{formatCurrency(totalPagar)}</div></CardContent>
-        </Card>
-        <Card className="border-l-4 border-l-success">
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-success">A Receber</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold">{formatCurrency(totalReceber)}</div></CardContent>
-        </Card>
-        <Card className={`border-l-4 ${saldoMes >= 0 ? 'border-l-primary' : 'border-l-warning'}`}>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Saldo do Mês</CardTitle></CardHeader>
-          <CardContent><div className={`text-2xl font-bold ${saldoMes >= 0 ? 'text-primary' : 'text-warning'}`}>{formatCurrency(saldoMes)}</div></CardContent>
-        </Card>
-      </div>
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="grid w-full grid-cols-2 mb-6">
+          <TabsTrigger value="pagar" className="flex items-center gap-2">
+            <TrendingDown className="h-4 w-4" />
+            A Pagar
+          </TabsTrigger>
+          <TabsTrigger value="receber" className="flex items-center gap-2">
+            <TrendingUp className="h-4 w-4" />
+            A Receber
+          </TabsTrigger>
+        </TabsList>
 
-      {/* --- TABELAS --- */}
-      <div className="grid gap-8 lg:grid-cols-2">
-        {/* TABELA A PAGAR */}
-        <Card>
-          <CardHeader><CardTitle className="text-destructive">Contas a Pagar</CardTitle></CardHeader>
-          <CardContent>
-            {aPagarFiltrado.length === 0 ? (
-              <p className="text-center text-muted-foreground py-4">Nenhuma conta para este mês.</p>
-            ) : (
-              <div className="space-y-4">
-                {aPagarFiltrado.map(conta => (
-                  <div key={conta.id} className="flex justify-between items-center p-3 border rounded-lg bg-background">
-                    <div>
-                      <p className="font-medium text-sm">{conta.payables?.description}</p>
-                      <div className="flex gap-2 mt-1">
-                        <Badge variant="outline" className="text-[10px]">{formatDate(conta.due_date)}</Badge>
-                        <Badge variant="secondary" className="text-[10px]">{conta.installment_number}ª Parc</Badge>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-bold text-destructive">{formatCurrency(conta.amount)}</p>
-                      <p className="text-xs text-muted-foreground capitalize">{conta.status}</p>
-                    </div>
-                  </div>
-                ))}
+        <TabsContent value="pagar">
+          {/* Payable Summary */}
+          <div className="grid gap-4 md:grid-cols-3 mb-6">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Pendente
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {formatCurrency(payableSummary.pending)}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-destructive/50">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-destructive">
+                  Vencidas
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-destructive">
+                  {formatCurrency(payableSummary.overdue)}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-success/50">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-success">
+                  Pagas
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-success">
+                  {formatCurrency(payableSummary.paid)}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <DataTable
+            data={processedPayables}
+            columns={payableColumns}
+            emptyMessage="Nenhuma conta a pagar neste período."
+          />
+        </TabsContent>
+
+        <TabsContent value="receber">
+          {/* Receivable Summary */}
+          <div className="grid gap-4 md:grid-cols-3 mb-6">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Pendente
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {formatCurrency(receivableSummary.pending)}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-destructive/50">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-destructive">
+                  Vencidas
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-destructive">
+                  {formatCurrency(receivableSummary.overdue)}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-success/50">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-success">
+                  Recebidas
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-success">
+                  {formatCurrency(receivableSummary.received)}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <DataTable
+            data={processedReceivables}
+            columns={receivableColumns}
+            emptyMessage="Nenhuma conta a receber neste período."
+          />
+        </TabsContent>
+      </Tabs>
+
+      {/* Expense Modal */}
+      <Dialog open={isExpenseModalOpen} onOpenChange={setIsExpenseModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <DollarSign className="h-5 w-5" />
+              Novo Gasto Extra
+            </DialogTitle>
+          </DialogHeader>
+
+          <form onSubmit={handleAddExpense} className="space-y-4">
+            <div className="space-y-2">
+              <Label>Descrição</Label>
+              <Input
+                value={expenseForm.description}
+                onChange={e => setExpenseForm({ ...expenseForm, description: e.target.value })}
+                placeholder="Ex: Clube Livelo, Taxa de transferência..."
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Valor Total</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={expenseForm.totalValue}
+                  onChange={e => setExpenseForm({ ...expenseForm, totalValue: e.target.value })}
+                  placeholder="0.00"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Data</Label>
+                <Input
+                  type="date"
+                  value={expenseForm.purchaseDate}
+                  onChange={e => setExpenseForm({ ...expenseForm, purchaseDate: e.target.value })}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="useCreditCard"
+                checked={expenseForm.useCreditCard}
+                onChange={e => setExpenseForm({ ...expenseForm, useCreditCard: e.target.checked })}
+                className="rounded"
+              />
+              <Label htmlFor="useCreditCard">Usou cartão de crédito?</Label>
+            </div>
+
+            {expenseForm.useCreditCard && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Cartão</Label>
+                  <Select 
+                    value={expenseForm.creditCardId} 
+                    onValueChange={v => setExpenseForm({ ...expenseForm, creditCardId: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {creditCards?.map(card => (
+                        <SelectItem key={card.id} value={card.id}>
+                          {card.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Parcelas</Label>
+                  <Select 
+                    value={expenseForm.installments} 
+                    onValueChange={v => setExpenseForm({ ...expenseForm, installments: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map(n => (
+                        <SelectItem key={n} value={n.toString()}>
+                          {n}x
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             )}
-          </CardContent>
-        </Card>
 
-        {/* TABELA A RECEBER */}
-        <Card>
-          <CardHeader><CardTitle className="text-success">Contas a Receber</CardTitle></CardHeader>
-          <CardContent>
-            {aReceberFiltrado.length === 0 ? (
-              <p className="text-center text-muted-foreground py-4">Nenhum recebimento para este mês.</p>
-            ) : (
-              <div className="space-y-4">
-                {aReceberFiltrado.map(conta => (
-                  <div key={conta.id} className="flex justify-between items-center p-3 border rounded-lg bg-background">
-                    <div>
-                      <p className="font-medium text-sm">{conta.receivables?.description}</p>
-                      <div className="flex gap-2 mt-1">
-                        <Badge variant="outline" className="text-[10px]">{formatDate(conta.due_date)}</Badge>
-                        <Badge variant="secondary" className="text-[10px]">{conta.installment_number}ª Parc</Badge>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-bold text-success">{formatCurrency(conta.amount)}</p>
-                      <p className="text-xs text-muted-foreground capitalize">{conta.status}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      <TransactionModal open={isModalOpen} onOpenChange={setIsModalOpen} />
+            <div className="flex justify-end gap-2 pt-4">
+              <Button type="button" variant="outline" onClick={() => setIsExpenseModalOpen(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit">
+                Registrar
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </MainLayout>
   );
 };
