@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { useData } from '@/contexts/DataContext';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { PageHeader } from '@/components/ui/page-header';
@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ArrowRightLeft, Calculator, TrendingUp, AlertCircle } from 'lucide-react';
+import { ArrowRightLeft, Calculator, TrendingUp } from 'lucide-react';
 import { formatCurrency, formatNumber, formatCPM } from '@/utils/financeLogic';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -24,54 +24,44 @@ const Transferencias = () => {
   const [quantidade, setQuantidade] = useState("");
   const [bonus, setBonus] = useState("0");
   const [dataTransf, setDataTransf] = useState(format(new Date(), 'yyyy-MM-dd'));
-  
-  // Novo estado para corrigir CPM manualmente se vier zerado
-  const [custoManual, setCustoManual] = useState(""); 
 
-  // 1. Busca os dados de saldo da origem selecionada
+  // 1. Busca automática do saldo e CPM da origem no banco
   const dadosOrigem = useMemo(() => {
     if (!contaId || !origemId || !milesBalance) return { saldo: 0, cpm: 0 };
+    
+    // Procura no array de saldos o item que bate Conta + Programa
     const saldo = milesBalance.find(m => m.account_id === contaId && m.program_id === origemId);
     
-    // Se o saldo existe mas o CPM veio 0 (ex: bônus puro), permitimos override
     return {
       saldo: saldo?.balance || 0,
       cpm: saldo?.avg_cpm || 0
     };
   }, [contaId, origemId, milesBalance]);
 
-  // Efeito para preencher o custo manual se o CPM vier zerado
-  useEffect(() => {
-    if (dadosOrigem.cpm > 0) {
-      setCustoManual(dadosOrigem.cpm.toFixed(2));
-    } else {
-      setCustoManual(""); // Limpa para o usuário digitar se for zero
-    }
-  }, [dadosOrigem.cpm]);
-
-  // 2. Cálculos da Simulação
+  // 2. Cálculos Automáticos
   const simulacao = useMemo(() => {
     const qtdSaida = Number(quantidade) || 0;
     const percBonus = Number(bonus) || 0;
-    const cpmConsiderado = Number(custoManual) || dadosOrigem.cpm || 0;
     
-    // Custo total que vai migrar (Qtd * CPM / 1000)
-    const custoTransferido = (qtdSaida / 1000) * cpmConsiderado;
+    // Pega o CPM direto da origem (sem input manual)
+    const cpmOrigem = dadosOrigem.cpm;
+    
+    // Custo Financeiro que está saindo (Qtd * CPM / 1000)
+    const custoTransferido = (qtdSaida / 1000) * cpmOrigem;
 
-    // Quantidade que vai entrar no destino
+    // Quantidade que vai entrar no destino (com bônus)
     const qtdEntrada = qtdSaida + (qtdSaida * (percBonus / 100));
 
-    // Novo CPM no Destino (Custo Transferido / Qtd Entrada * 1000)
+    // Novo CPM no Destino (Diluição do custo pela nova quantidade)
     const novoCpm = qtdEntrada > 0 ? (custoTransferido / qtdEntrada) * 1000 : 0;
 
     return {
       qtdSaida,
       qtdEntrada,
       custoTransferido,
-      novoCpm,
-      cpmUsado: cpmConsiderado
+      novoCpm
     };
-  }, [quantidade, bonus, dadosOrigem, custoManual]);
+  }, [quantidade, bonus, dadosOrigem]);
 
   const handleSalvarReal = async () => {
      if (!contaId || !origemId || !destinoId || !quantidade) {
@@ -85,25 +75,25 @@ const Transferencias = () => {
      }
 
      try {
-       // 1. SAÍDA
+       // 1. SAÍDA (Remove as milhas da origem)
        await createTransaction.mutateAsync({
           account_id: contaId,
           program_id: origemId,
           type: 'TRANSF_SAIDA',
           quantity: -simulacao.qtdSaida,
-          total_cost: 0, 
+          total_cost: 0, // Sai sem custo financeiro (apenas baixa física)
           sale_price: 0,
           transaction_date: dataTransf,
           notes: `Transferência para ${programas.find(p=>p.id===destinoId)?.nome}`
        });
 
-       // 2. ENTRADA
+       // 2. ENTRADA (Adiciona no destino com o custo calculado)
        await createTransaction.mutateAsync({
           account_id: contaId,
           program_id: destinoId,
           type: 'TRANSF_ENTRADA',
           quantity: simulacao.qtdEntrada,
-          total_cost: simulacao.custoTransferido, 
+          total_cost: simulacao.custoTransferido, // O custo é injetado aqui
           sale_price: 0,
           transaction_date: dataTransf,
           notes: `Transferência de ${programas.find(p=>p.id===origemId)?.nome} com ${bonus}% bônus`
@@ -141,12 +131,9 @@ const Transferencias = () => {
                   <SelectContent>{programas.map(p => <SelectItem key={p.id} value={p.id}>{p.nome}</SelectItem>)}</SelectContent>
                 </Select>
                 {contaId && origemId && (
-                  <div className="text-xs text-muted-foreground mt-1 flex flex-col gap-1">
-                    <span>Disponível: {formatNumber(dadosOrigem.saldo)}</span>
-                    <span className={dadosOrigem.cpm === 0 ? "text-warning" : ""}>
-                      CPM Atual: {formatCPM(dadosOrigem.cpm)}
-                    </span>
-                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Disponível: {formatNumber(dadosOrigem.saldo)} | CPM: {formatCPM(dadosOrigem.cpm)}
+                  </p>
                 )}
               </div>
               <div className="space-y-2">
@@ -156,24 +143,6 @@ const Transferencias = () => {
                   <SelectContent>{programas.map(p => <SelectItem key={p.id} value={p.id}>{p.nome}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-            </div>
-
-            {/* CAMPO NOVO: Custo do Milheiro na Origem (Editável se necessário) */}
-            <div className="space-y-2">
-                <Label className="flex items-center gap-2">
-                    Custo Milheiro Origem 
-                    {dadosOrigem.cpm === 0 && <span className="text-xs text-warning">(Ajuste manual necessário)</span>}
-                </Label>
-                <Input 
-                    type="number" 
-                    step="0.01"
-                    value={custoManual} 
-                    onChange={e => setCustoManual(e.target.value)} 
-                    placeholder={dadosOrigem.cpm > 0 ? dadosOrigem.cpm.toString() : "0.00"}
-                />
-                <p className="text-[10px] text-muted-foreground">
-                    O sistema calcula automaticamente, mas você pode ajustar se o histórico estiver zerado.
-                </p>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -207,7 +176,7 @@ const Transferencias = () => {
                 <p className="text-xl font-bold text-destructive">-{formatNumber(simulacao.qtdSaida)}</p>
               </div>
               <div className="text-right">
-                <p className="text-xs text-muted-foreground">Custo total migrado</p>
+                <p className="text-xs text-muted-foreground">Custo migrado</p>
                 <p className="text-sm font-medium">{formatCurrency(simulacao.custoTransferido)}</p>
               </div>
             </div>
@@ -241,19 +210,9 @@ const Transferencias = () => {
                 {formatCPM(simulacao.novoCpm)} 
                 <span className="text-sm font-normal text-muted-foreground ml-1">/milheiro</span>
               </div>
-              
-              {simulacao.cpmUsado === 0 && (
-                 <div className="flex items-center gap-2 mt-2 text-xs text-warning font-medium">
-                    <AlertCircle className="h-3 w-3"/>
-                    Atenção: Custo de origem é zero. Ajuste manualmente para cálculo real.
-                 </div>
-              )}
-              
-              {simulacao.cpmUsado > 0 && (
-                  <p className="text-xs text-muted-foreground mt-2">
-                    O custo caiu de {formatCPM(simulacao.cpmUsado)} para {formatCPM(simulacao.novoCpm)}.
-                  </p>
-              )}
+              <p className="text-xs text-muted-foreground mt-2">
+                Baseado no CPM de origem: {formatCPM(dadosOrigem.cpm)}
+              </p>
             </div>
           </CardContent>
         </Card>
