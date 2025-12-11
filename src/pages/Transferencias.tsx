@@ -11,9 +11,11 @@ import { ArrowRightLeft, Calculator, TrendingUp } from 'lucide-react';
 import { formatCurrency, formatNumber } from '@/utils/financeLogic';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
+import { useCreateTransaction } from '@/hooks/useSupabaseData'; // Importando o hook correto
 
 const Transferencias = () => {
-  const { contas, programas, milesBalance, addCompra, addVenda } = useData(); // Vamos usar addCompra/Venda como base ou criar lógica direta
+  const { contas, programas, milesBalance } = useData();
+  const createTransaction = useCreateTransaction();
 
   // Estados do Formulário
   const [contaId, setContaId] = useState("");
@@ -22,7 +24,6 @@ const Transferencias = () => {
   const [quantidade, setQuantidade] = useState("");
   const [bonus, setBonus] = useState("0");
   const [dataTransf, setDataTransf] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [custoPersonalizado, setCustoPersonalizado] = useState(""); // Opcional: Para definir custo zero ou específico
 
   // Cálculos em tempo real
   const qtdOrigem = Number(quantidade) || 0;
@@ -34,77 +35,45 @@ const Transferencias = () => {
   const cpmOrigem = saldoOrigem?.avg_cpm || 0;
   const custoTotalOrigem = (qtdOrigem / 1000) * cpmOrigem;
   
-  // O custo no destino será o mesmo valor total da origem (você não gastou mais dinheiro, só mudou de lugar)
-  // Mas a quantidade aumentou, então o CPM vai diminuir (diluição).
   const cpmDestino = qtdDestino > 0 ? (custoTotalOrigem / qtdDestino) * 1000 : 0;
 
-  const handleTransferir = async () => {
-    if (!contaId || !origemId || !destinoId || !quantidade) {
-      toast.error("Preencha todos os campos obrigatórios");
-      return;
-    }
-
-    try {
-      // 1. Saída da Origem (Registro como TRANSF_SAIDA)
-      // Usamos a lógica de 'Venda' ou 'Transação Negativa'
-      // Precisamos adaptar o DataContext para aceitar o tipo específico ou chamar a API direto.
-      // Vou assumir que você vai adicionar suporte a esses tipos no DataContext ou usaremos o hook direto.
-      // *SIMPLIFICAÇÃO*: Vamos chamar transaction direto aqui se possível, ou usar os helpers.
-      
-      // Como o DataContext atual abstrai, vou sugerir usar uma função dedicada se você tiver, 
-      // mas aqui vou simular usando addCompra/Venda com flags ou chamando a API customizada.
-      
-      // MELHOR CAMINHO: Usar os hooks do Supabase direto aqui para ter controle total dos tipos
-      // (Mas para manter consistência com seu projeto, vou descrever a lógica de negócio):
-      
-      /*
-        Lógica de Banco de Dados:
-        Transaction 1: Type='TRANSF_SAIDA', Qty = -qtdOrigem, Total = 0 (ou custo proporcional negativo se quiser abater financeiro, mas geralmente só zeramos quantidade)
-        Transaction 2: Type='TRANSF_ENTRADA', Qty = +qtdDestino, Total = custoTotalOrigem (carrega o custo)
-      */
-     
-      // Para funcionar AGORA com o que você tem, você precisará expor 'createTransaction' no DataContext 
-      // ou importar 'useCreateTransaction' aqui. Vou usar os hooks do useSupabaseData que vi no seu Modal.
-      toast.info("Funcionalidade precisa ser conectada ao Backend (Ver instrução abaixo)");
-      
-    } catch (error) {
-      toast.error("Erro na transferência");
-    }
-  };
-
-  // Precisamos importar o hook real para funcionar
-  const { useCreateTransaction } = require('@/hooks/useSupabaseData'); 
-  const createTransaction = useCreateTransaction();
-
   const handleSalvarReal = async () => {
-     if (!contaId || !origemId || !destinoId || !quantidade) return;
+     if (!contaId || !origemId || !destinoId || !quantidade) {
+        toast.error("Preencha todos os dados");
+        return;
+     }
      
-     // 1. SAÍDA
-     await createTransaction.mutateAsync({
-        account_id: contaId,
-        program_id: origemId,
-        type: 'TRANSF_SAIDA',
-        quantity: -qtdOrigem,
-        total_cost: 0, // Sai a custo zero para não bagunçar o "Lucro", ou pode retirar o valor do investimento. 
-        // *Recomendação Contábil*: Se você transfere, o valor $$ sai de um pote e vai pro outro.
-        // Então na saída, o custo é 0 (apenas baixa de estoque), e na entrada carregamos o custo.
-        transaction_date: dataTransf,
-        notes: `Transferência para ${programas.find(p=>p.id===destinoId)?.nome}`
-     });
+     try {
+       // 1. SAÍDA
+       await createTransaction.mutateAsync({
+          account_id: contaId,
+          program_id: origemId,
+          type: 'TRANSF_SAIDA',
+          quantity: -qtdOrigem,
+          total_cost: 0, 
+          sale_price: 0,
+          transaction_date: dataTransf,
+          notes: `Transferência para ${programas.find(p=>p.id===destinoId)?.nome}`
+       });
 
-     // 2. ENTRADA (Com Bônus)
-     await createTransaction.mutateAsync({
-        account_id: contaId,
-        program_id: destinoId,
-        type: 'TRANSF_ENTRADA',
-        quantity: qtdDestino,
-        total_cost: custoTotalOrigem, // AQUI ESTÁ O SEGREDO: O custo viaja junto!
-        transaction_date: dataTransf,
-        notes: `Transferência de ${programas.find(p=>p.id===origemId)?.nome} com ${bonus}% bônus`
-     });
+       // 2. ENTRADA (Com Bônus)
+       await createTransaction.mutateAsync({
+          account_id: contaId,
+          program_id: destinoId,
+          type: 'TRANSF_ENTRADA',
+          quantity: qtdDestino,
+          total_cost: custoTotalOrigem, // Custo viaja junto
+          sale_price: 0,
+          transaction_date: dataTransf,
+          notes: `Transferência de ${programas.find(p=>p.id===origemId)?.nome} com ${bonus}% bônus`
+       });
 
-     toast.success("Transferência realizada com sucesso!");
-     // Limpar form...
+       toast.success("Transferência realizada com sucesso!");
+       setQuantidade("");
+       setBonus("0");
+     } catch (error) {
+        toast.error("Erro ao realizar transferência");
+     }
   };
 
   return (
@@ -188,7 +157,7 @@ const Transferencias = () => {
                 <span className="text-sm font-medium">Novo CPM (Destino)</span>
                 <TrendingUp className="h-4 w-4 text-primary" />
               </div>
-              <div className="text-2xl font-bold text-primary">{formatCurrency(cpmDestino/1000 * 1000)} <span className="text-xs font-normal text-muted-foreground">/milheiro</span></div>
+              <div className="text-2xl font-bold text-primary">{formatCPM(cpmDestino)} <span className="text-xs font-normal text-muted-foreground">/milheiro</span></div>
               <p className="text-xs text-muted-foreground mt-1">O custo do milheiro caiu devido ao bônus.</p>
             </div>
           </CardContent>
