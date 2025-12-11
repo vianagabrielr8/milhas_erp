@@ -1,3 +1,4 @@
+import { useState, useMemo } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { StatCard } from '@/components/dashboard/StatCard';
@@ -11,92 +12,153 @@ import {
   Receipt,
   Wallet,
   AlertTriangle,
+  Filter,
+  Calendar
 } from 'lucide-react';
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from '@/components/ui/select';
 import { 
   useMilesBalance, 
   useExpiringMiles, 
   usePayableInstallments, 
   useReceivableInstallments,
-  useTransactions 
+  useTransactions,
+  useAccounts // <--- Adicionado para o filtro
 } from '@/hooks/useSupabaseData';
 import { formatCPM } from '@/utils/financeLogic';
-import { format } from 'date-fns';
+import { format, startOfMonth, endOfMonth, isWithinInterval, parseISO, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 const COLORS = ['hsl(var(--primary))', 'hsl(var(--success))', 'hsl(var(--warning))', 'hsl(var(--destructive))', 'hsl(var(--secondary))'];
 
 const Dashboard = () => {
+  // Hooks de Dados
   const { data: milesBalance, isLoading: loadingBalance } = useMilesBalance();
   const { data: expiringMiles } = useExpiringMiles();
   const { data: payableInstallments } = usePayableInstallments();
   const { data: receivableInstallments } = useReceivableInstallments();
   const { data: transactions } = useTransactions();
+  const { data: accounts } = useAccounts(); // <--- Lista de contas para o filtro
 
-  // Calculate totals
-  const totalMiles = milesBalance?.reduce((acc, item) => acc + (item.balance || 0), 0) || 0;
-  const totalInvested = milesBalance?.reduce((acc, item) => acc + (item.total_invested || 0), 0) || 0;
+  // Estados dos Filtros
+  const [filtroConta, setFiltroConta] = useState("all");
+  const [filtroMes, setFiltroMes] = useState(format(new Date(), 'yyyy-MM')); // Padrão: Mês atual
+
+  // --- LÓGICA DE FILTRAGEM ---
+
+  // 1. Filtrar Estoque (Baseado apenas na CONTA, pois estoque é "Posição Atual")
+  const estoqueFiltrado = useMemo(() => {
+    if (!milesBalance) return [];
+    if (filtroConta === "all") return milesBalance;
+    return milesBalance.filter(m => m.account_id === filtroConta);
+  }, [milesBalance, filtroConta]);
+
+  // Totais do Estoque (Calculados sobre o filtrado)
+  const totalMiles = estoqueFiltrado.reduce((acc, item) => acc + (item.balance || 0), 0);
+  const totalInvested = estoqueFiltrado.reduce((acc, item) => acc + (item.total_invested || 0), 0);
   const avgCpmGlobal = totalMiles > 0 ? (totalInvested / totalMiles) * 1000 : 0;
 
-  const pendingPayables = payableInstallments
-    ?.filter(i => i.status === 'pendente')
-    .reduce((acc, i) => acc + Number(i.amount), 0) || 0;
+  // 2. Definir intervalo de datas para Financeiro e Lucro
+  const { inicioMes, finalMes } = useMemo(() => {
+    const [ano, mes] = filtroMes.split('-');
+    const dataBase = new Date(parseInt(ano), parseInt(mes) - 1, 1);
+    return {
+      inicioMes: startOfMonth(dataBase),
+      finalMes: endOfMonth(dataBase)
+    };
+  }, [filtroMes]);
 
-  const pendingReceivables = receivableInstallments
-    ?.filter(i => i.status === 'pendente')
-    .reduce((acc, i) => acc + Number(i.amount), 0) || 0;
+  // 3. Filtrar Financeiro (Baseado em DATA DE VENCIMENTO + CONTA)
+  // Nota: Se seus installments não tiverem account_id direto, filtrar por conta aqui pode ser impreciso 
+  // sem fazer join. Vou filtrar por DATA (que é o principal para fluxo de caixa) e tentar filtrar por conta se possível.
+  const pendingPayables = useMemo(() => {
+    return payableInstallments
+      ?.filter(i => {
+        const isPendente = i.status === 'pendente';
+        const isDataOk = isWithinInterval(new Date(i.due_date), { start: inicioMes, end: finalMes });
+        // Se houver vinculo de conta no installment, filtramos. Se não, mostra geral do mês.
+        // Assumindo filtro de data como prioridade para "Contas do Mês".
+        return isPendente && isDataOk;
+      })
+      .reduce((acc, i) => acc + Number(i.amount), 0) || 0;
+  }, [payableInstallments, inicioMes, finalMes]);
 
-  // Calculate profit from transactions
-  const totalPurchases = transactions
-    ?.filter(t => t.type === 'COMPRA')
-    .reduce((acc, t) => acc + (t.total_cost || 0), 0) || 0;
+  const pendingReceivables = useMemo(() => {
+    return receivableInstallments
+      ?.filter(i => {
+        const isPendente = i.status === 'pendente';
+        const isDataOk = isWithinInterval(new Date(i.due_date), { start: inicioMes, end: finalMes });
+        return isPendente && isDataOk;
+      })
+      .reduce((acc, i) => acc + Number(i.amount), 0) || 0;
+  }, [receivableInstallments, inicioMes, finalMes]);
 
-  const totalSales = transactions
-    ?.filter(t => t.type === 'VENDA')
-    .reduce((acc, t) => acc + (t.sale_price || 0), 0) || 0;
+  // 4. Filtrar Lucro (Transações dentro do MÊS selecionado + CONTA)
+  const { profit } = useMemo(() => {
+    const transacoesFiltradas = transactions?.filter(t => {
+      const dataTransacao = new Date(t.transaction_date);
+      const isDataOk = isWithinInterval(dataTransacao, { start: inicioMes, end: finalMes });
+      const isContaOk = filtroConta === "all" || t.account_id === filtroConta;
+      return isDataOk && isContaOk;
+    }) || [];
 
-  const profit = totalSales - totalPurchases;
+    const totalPurchases = transacoesFiltradas
+      .filter(t => t.type === 'COMPRA')
+      .reduce((acc, t) => acc + (t.total_cost || 0), 0);
 
-  // Prepare chart data - CPM by program
-  const cpmByProgram = milesBalance?.reduce((acc, item) => {
-    if (!item.program_name) return acc;
+    const totalSales = transacoesFiltradas
+      .filter(t => t.type === 'VENDA')
+      .reduce((acc, t) => acc + (t.sale_price || 0), 0);
+
+    return { profit: totalSales - totalPurchases };
+  }, [transactions, inicioMes, finalMes, filtroConta]);
+
+  // 5. Gráficos (Baseados no Estoque Filtrado)
+  const cpmByProgram = useMemo(() => {
+    const agrupado: any[] = [];
+    estoqueFiltrado.forEach(item => {
+      if (!item.program_name) return;
+      const existing = agrupado.find(a => a.name === item.program_name);
+      if (existing) {
+        existing.balance += item.balance || 0;
+        existing.invested += item.total_invested || 0;
+      } else {
+        agrupado.push({
+          name: item.program_name,
+          balance: item.balance || 0,
+          invested: item.total_invested || 0,
+          cpm: 0
+        });
+      }
+    });
     
-    const existing = acc.find(a => a.name === item.program_name);
-    if (existing) {
-      existing.balance += item.balance || 0;
-      existing.invested += item.total_invested || 0;
-    } else {
-      acc.push({
-        name: item.program_name,
-        balance: item.balance || 0,
-        invested: item.total_invested || 0,
-        cpm: 0,
-      });
-    }
-    return acc;
-  }, [] as { name: string; balance: number; invested: number; cpm: number }[]) || [];
+    agrupado.forEach(item => {
+      item.cpm = item.balance > 0 ? (item.invested / item.balance) * 1000 : 0;
+    });
+    return agrupado;
+  }, [estoqueFiltrado]);
 
-  cpmByProgram.forEach(item => {
-    item.cpm = item.balance > 0 ? (item.invested / item.balance) * 1000 : 0;
-  });
-
-  // Pie chart data for miles distribution
   const milesDistribution = cpmByProgram.map((item, index) => ({
     name: item.name,
     value: item.balance,
     color: COLORS[index % COLORS.length],
   }));
 
+  // Formatters
   const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('pt-BR', {
-      style: 'currency',
-      currency: 'BRL',
-    }).format(value);
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
   };
-
   const formatNumber = (value: number) => {
     return new Intl.NumberFormat('pt-BR').format(value);
   };
+
+  // --- RENDER ---
 
   if (loadingBalance) {
     return (
@@ -115,53 +177,97 @@ const Dashboard = () => {
         description="Visão geral do seu negócio de milhas"
       />
 
+      {/* --- BARRA DE FILTROS --- */}
+      <div className="flex flex-col sm:flex-row gap-4 mb-6 bg-muted/20 p-4 rounded-lg border border-border/50">
+        <div className="flex items-center gap-2 text-muted-foreground text-sm min-w-[80px]">
+          <Filter className="h-4 w-4" />
+          Filtros:
+        </div>
+        
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 flex-1">
+          {/* Filtro de Conta */}
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground ml-1">Conta</label>
+            <Select value={filtroConta} onValueChange={setFiltroConta}>
+              <SelectTrigger className="bg-background h-9">
+                <SelectValue placeholder="Todas as Contas" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas as Contas</SelectItem>
+                {accounts?.map(c => (
+                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Filtro de Mês */}
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground ml-1">Período (Financeiro/Lucro)</label>
+            <Select value={filtroMes} onValueChange={setFiltroMes}>
+              <SelectTrigger className="bg-background h-9">
+                <SelectValue placeholder="Selecione o mês" />
+              </SelectTrigger>
+              <SelectContent>
+                {Array.from({ length: 12 }, (_, i) => {
+                  const d = subMonths(new Date(), i);
+                  const value = format(d, 'yyyy-MM');
+                  const label = format(d, 'MMMM yyyy', { locale: ptBR });
+                  return <SelectItem key={value} value={value}>{label.charAt(0).toUpperCase() + label.slice(1)}</SelectItem>;
+                })}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </div>
+
       {/* Stats Grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-8">
         <StatCard
           title="Estoque de Milhas"
           value={formatNumber(totalMiles)}
-          subtitle="Total disponível"
+          subtitle="Total disponível (Filtrado)"
           icon={Plane}
           variant="default"
         />
         <StatCard
           title="CPM Médio Global"
           value={formatCPM(avgCpmGlobal)}
-          subtitle="Custo por milheiro"
+          subtitle="Custo por milheiro (Estoque)"
           icon={TrendingDown}
           variant="destructive"
         />
         <StatCard
-          title="Lucro Total"
+          title="Resultado do Mês" // Alterado título para refletir o filtro
           value={formatCurrency(profit)}
-          subtitle={profit >= 0 ? 'Resultado positivo' : 'Resultado negativo'}
+          subtitle={`Lucro/Prejuízo em ${format(parseISO(filtroMes + '-01'), 'MMMM', { locale: ptBR })}`}
           icon={profit >= 0 ? TrendingUp : TrendingDown}
           variant={profit >= 0 ? 'success' : 'destructive'}
         />
         <StatCard
           title="Total Investido"
           value={formatCurrency(totalInvested)}
-          subtitle="Em milhas"
+          subtitle="Em estoque atual"
           icon={Wallet}
           variant="default"
         />
         <StatCard
           title="Contas a Pagar"
           value={formatCurrency(pendingPayables)}
-          subtitle="Pendentes"
+          subtitle={`Vencendo em ${format(parseISO(filtroMes + '-01'), 'MMM')}`}
           icon={CreditCard}
           variant="warning"
         />
         <StatCard
           title="Contas a Receber"
           value={formatCurrency(pendingReceivables)}
-          subtitle="Pendentes"
+          subtitle={`Previsto para ${format(parseISO(filtroMes + '-01'), 'MMM')}`}
           icon={Receipt}
           variant="default"
         />
       </div>
 
-      {/* Expiring Miles Alert */}
+      {/* Expiring Miles Alert (Sempre mostra geral ou filtrado por conta se possível) */}
       {expiringMiles && expiringMiles.length > 0 && (
         <Card className="mb-8 border-warning/50 bg-warning/5">
           <CardHeader>
@@ -172,7 +278,10 @@ const Dashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-              {expiringMiles.slice(0, 6).map((item) => (
+              {expiringMiles
+                .filter(m => filtroConta === 'all' || m.account_name === accounts?.find(a => a.id === filtroConta)?.name) // Filtro visual simples pelo nome
+                .slice(0, 6)
+                .map((item) => (
                 <div
                   key={item.id}
                   className="flex justify-between items-center p-3 rounded-lg bg-background border"
