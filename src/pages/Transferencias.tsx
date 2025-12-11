@@ -8,10 +8,10 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ArrowRightLeft, Calculator, TrendingUp } from 'lucide-react';
-import { formatCurrency, formatNumber } from '@/utils/financeLogic';
+import { formatCurrency, formatNumber, formatCPM } from '@/utils/financeLogic';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
-import { useCreateTransaction } from '@/hooks/useSupabaseData'; // Importando o hook correto
+import { useCreateTransaction } from '@/hooks/useSupabaseData';
 
 const Transferencias = () => {
   const { contas, programas, milesBalance } = useData();
@@ -35,43 +35,56 @@ const Transferencias = () => {
   const cpmOrigem = saldoOrigem?.avg_cpm || 0;
   const custoTotalOrigem = (qtdOrigem / 1000) * cpmOrigem;
   
+  // O custo no destino será o mesmo valor total da origem (diluição)
   const cpmDestino = qtdDestino > 0 ? (custoTotalOrigem / qtdDestino) * 1000 : 0;
 
-  const handleSalvarReal = async () => {
+  const handleTransferir = async () => {
      if (!contaId || !origemId || !destinoId || !quantidade) {
-        toast.error("Preencha todos os dados");
+        toast.error("Preencha todos os dados obrigatórios");
+        return;
+     }
+     
+     if (origemId === destinoId) {
+        toast.error("Origem e Destino devem ser diferentes");
+        return;
+     }
+
+     if (qtdOrigem > (saldoOrigem?.balance || 0)) {
+        toast.error("Saldo insuficiente na origem");
         return;
      }
      
      try {
-       // 1. SAÍDA
+       // 1. SAÍDA DA ORIGEM
        await createTransaction.mutateAsync({
           account_id: contaId,
           program_id: origemId,
           type: 'TRANSF_SAIDA',
           quantity: -qtdOrigem,
-          total_cost: 0, 
+          total_cost: 0, // Sai sem valor financeiro (apenas baixa de qtd)
           sale_price: 0,
           transaction_date: dataTransf,
           notes: `Transferência para ${programas.find(p=>p.id===destinoId)?.nome}`
        });
 
-       // 2. ENTRADA (Com Bônus)
+       // 2. ENTRADA NO DESTINO (Com Bônus e Custo Herdado)
        await createTransaction.mutateAsync({
           account_id: contaId,
           program_id: destinoId,
           type: 'TRANSF_ENTRADA',
           quantity: qtdDestino,
-          total_cost: custoTotalOrigem, // Custo viaja junto
+          total_cost: custoTotalOrigem, // Custo é transferido para cá
           sale_price: 0,
           transaction_date: dataTransf,
           notes: `Transferência de ${programas.find(p=>p.id===origemId)?.nome} com ${bonus}% bônus`
        });
 
        toast.success("Transferência realizada com sucesso!");
+       // Resetar campos básicos
        setQuantidade("");
        setBonus("0");
      } catch (error) {
+        console.error(error);
         toast.error("Erro ao realizar transferência");
      }
   };
@@ -87,8 +100,10 @@ const Transferencias = () => {
             <div className="space-y-2">
               <Label>Conta (CPF)</Label>
               <Select value={contaId} onValueChange={setContaId}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>{contas.map(c => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}</SelectContent>
+                <SelectTrigger><SelectValue placeholder="Selecione a conta" /></SelectTrigger>
+                <SelectContent>
+                  {contas.map(c => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
+                </SelectContent>
               </Select>
             </div>
 
@@ -97,15 +112,23 @@ const Transferencias = () => {
                 <Label>De (Origem)</Label>
                 <Select value={origemId} onValueChange={setOrigemId}>
                   <SelectTrigger><SelectValue placeholder="Programa" /></SelectTrigger>
-                  <SelectContent>{programas.map(p => <SelectItem key={p.id} value={p.id}>{p.nome}</SelectItem>)}</SelectContent>
+                  <SelectContent>
+                    {programas.map(p => <SelectItem key={p.id} value={p.id}>{p.nome}</SelectItem>)}
+                  </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">Saldo: {formatNumber(saldoOrigem?.balance || 0)}</p>
+                {contaId && origemId && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Disponível: {formatNumber(saldoOrigem?.balance || 0)} (CPM: {formatCPM(cpmOrigem)})
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Para (Destino)</Label>
                 <Select value={destinoId} onValueChange={setDestinoId}>
                   <SelectTrigger><SelectValue placeholder="Programa" /></SelectTrigger>
-                  <SelectContent>{programas.map(p => <SelectItem key={p.id} value={p.id}>{p.nome}</SelectItem>)}</SelectContent>
+                  <SelectContent>
+                    {programas.map(p => <SelectItem key={p.id} value={p.id}>{p.nome}</SelectItem>)}
+                  </SelectContent>
                 </Select>
               </div>
             </div>
@@ -113,7 +136,7 @@ const Transferencias = () => {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Quantidade a Transferir</Label>
-                <Input type="number" value={quantidade} onChange={e => setQuantidade(e.target.value)} />
+                <Input type="number" value={quantidade} onChange={e => setQuantidade(e.target.value)} placeholder="Ex: 10000" />
               </div>
               <div className="space-y-2">
                 <Label>Bônus (%)</Label>
@@ -122,43 +145,67 @@ const Transferencias = () => {
             </div>
             
             <div className="space-y-2">
-                <Label>Data</Label>
+                <Label>Data da Transferência</Label>
                 <Input type="date" value={dataTransf} onChange={e => setDataTransf(e.target.value)} />
             </div>
 
-            <Button className="w-full" onClick={handleSalvarReal}>
+            <Button className="w-full" onClick={handleTransferir}>
               <ArrowRightLeft className="mr-2 h-4 w-4" /> Registrar Transferência
             </Button>
           </CardContent>
         </Card>
 
-        <Card className="bg-muted/10 border-dashed">
-          <CardHeader><CardTitle className="flex items-center gap-2"><Calculator className="h-5 w-5"/> Simulação</CardTitle></CardHeader>
+        {/* Simulação Visual */}
+        <Card className="bg-muted/10 border-dashed h-fit">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Calculator className="h-5 w-5"/> Simulação de Resultado
+            </CardTitle>
+          </CardHeader>
           <CardContent className="space-y-6">
-            <div>
-              <p className="text-sm text-muted-foreground">Vai sair da Origem:</p>
-              <p className="text-2xl font-bold text-destructive">-{formatNumber(qtdOrigem)}</p>
-              <p className="text-xs text-muted-foreground">Custo Histórico: {formatCurrency(custoTotalOrigem)}</p>
+            <div className="flex justify-between items-center p-3 bg-background rounded border">
+              <div>
+                <p className="text-sm text-muted-foreground">Vai sair da Origem</p>
+                <p className="text-xl font-bold text-destructive">-{formatNumber(qtdOrigem)}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-muted-foreground">Custo total</p>
+                <p className="text-sm font-medium">{formatCurrency(custoTotalOrigem)}</p>
+              </div>
             </div>
             
-            <div className="relative">
+            <div className="relative flex items-center justify-center">
                <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-dashed" /></div>
-               <div className="relative flex justify-center text-xs uppercase"><span className="bg-background px-2 text-muted-foreground">Transformação</span></div>
+               <span className="relative bg-background px-3 text-xs text-muted-foreground uppercase border rounded-full py-1">
+                 Bônus de {percBonus}%
+               </span>
             </div>
 
-            <div>
-              <p className="text-sm text-muted-foreground">Vai entrar no Destino:</p>
-              <p className="text-3xl font-bold text-success">+{formatNumber(qtdDestino)}</p>
-              <p className="text-xs text-muted-foreground">Custo Herdado: {formatCurrency(custoTotalOrigem)}</p>
-            </div>
-
-            <div className="p-4 bg-background rounded-lg border">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-sm font-medium">Novo CPM (Destino)</span>
-                <TrendingUp className="h-4 w-4 text-primary" />
+            <div className="flex justify-between items-center p-3 bg-background rounded border border-success/30">
+              <div>
+                <p className="text-sm text-muted-foreground">Vai entrar no Destino</p>
+                <p className="text-2xl font-bold text-success">+{formatNumber(qtdDestino)}</p>
               </div>
-              <div className="text-2xl font-bold text-primary">{formatCPM(cpmDestino)} <span className="text-xs font-normal text-muted-foreground">/milheiro</span></div>
-              <p className="text-xs text-muted-foreground mt-1">O custo do milheiro caiu devido ao bônus.</p>
+              <div className="text-right">
+                <p className="text-xs text-muted-foreground">Valor mantido</p>
+                <p className="text-sm font-medium text-success">{formatCurrency(custoTotalOrigem)}</p>
+              </div>
+            </div>
+
+            <div className="p-4 bg-primary/5 rounded-lg border border-primary/20">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm font-medium flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4 text-primary" />
+                  Novo CPM (Destino)
+                </span>
+              </div>
+              <div className="text-3xl font-bold text-primary">
+                {formatCPM(cpmDestino)} 
+                <span className="text-sm font-normal text-muted-foreground ml-1">/milheiro</span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                O custo do milheiro caiu porque a quantidade de pontos aumentou (bônus) mantendo o mesmo custo financeiro.
+              </p>
             </div>
           </CardContent>
         </Card>
