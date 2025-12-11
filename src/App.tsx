@@ -15,7 +15,8 @@ import Programas from "./pages/Programas";
 import Contas from "./pages/Contas";
 import Estoque from "./pages/Estoque";
 import CartoesPagamento from "./pages/CartoesPagamento";
-import Limites from "./pages/Limites"; // <--- IMPORTAÇÃO NOVA
+import Limites from "./pages/Limites";
+import Transferencias from "./pages/Transferencias"; // <--- ADICIONE ESTA LINHA
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -48,7 +49,8 @@ const App = () => (
             <Route path="/fornecedores" element={<Fornecedores />} />
             <Route path="/programas" element={<Programas />} />
             <Route path="/contas" element={<Contas />} />
-            <Route path="/limites" element={<Limites />} /> {/* <--- ROTA NOVA */}
+            <Route path="/limites" element={<Limites />} />
+            <Route path="/transferencias" element={<Transferencias />} /> {/* <--- ADICIONE ESTA LINHA */}
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
