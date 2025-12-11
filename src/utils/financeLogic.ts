@@ -1,8 +1,14 @@
-import { addMonths, setDate, isAfter, startOfDay, isEqual } from 'date-fns';
+import { addMonths, setDate, isAfter, startOfDay, isEqual, parseISO } from 'date-fns';
 
-// --- CÁLCULO DE DATAS DE CARTÃO (Lógica Confirmada) ---
-export const calculateCardDates = (transactionDate: Date, closingDay: number, dueDay: number) => {
-  const purchaseDate = startOfDay(new Date(transactionDate));
+// --- CÁLCULO DE DATAS DE CARTÃO (COM PROTEÇÃO DE FUSO HORÁRIO) ---
+export const calculateCardDates = (transactionDate: Date | string, closingDay: number, dueDay: number) => {
+  // TRUQUE DO MEIO-DIA: Garante que não volta 1 dia por causa de fuso (GMT-3)
+  // Se vier string "2025-11-27", vira "2025-11-27T12:00:00"
+  const dateString = typeof transactionDate === 'string' 
+    ? transactionDate.split('T')[0] 
+    : transactionDate.toISOString().split('T')[0];
+    
+  const purchaseDate = new Date(`${dateString}T12:00:00`);
   
   // 1. Determina a data de fechamento NO MÊS DA COMPRA
   const closingDateThisMonth = setDate(new Date(purchaseDate), closingDay);
@@ -11,7 +17,6 @@ export const calculateCardDates = (transactionDate: Date, closingDay: number, du
   let referenceDate = purchaseDate;
 
   // REGRA: Se a compra for NO DIA do fechamento ou DEPOIS, pula para a próxima fatura
-  // Ex: Fechamento dia 30. Compra dia 30 -> Próxima Fatura.
   if (isAfter(purchaseDate, closingDateThisMonth) || isEqual(purchaseDate, closingDateThisMonth)) {
     referenceDate = addMonths(purchaseDate, 1);
   }
@@ -22,7 +27,6 @@ export const calculateCardDates = (transactionDate: Date, closingDay: number, du
   // REGRA DE PAGAMENTO CRUZADO:
   // Se o dia do pagamento (ex: 06) for menor que o dia do fechamento (ex: 30),
   // significa que a fatura fecha num mês e paga no outro.
-  // Ex: Fatura de Outubro (Fecha 30/10) -> Paga 06/11.
   if (dueDay < closingDay) {
     finalDueDate = addMonths(finalDueDate, 1);
   }
@@ -35,8 +39,12 @@ export const generateInstallments = (totalValue: number, count: number, firstDue
   const installmentValue = totalValue / count;
   const installments = [];
 
+  // Garante hora fixa para evitar flutuação
+  const baseDate = new Date(firstDueDate);
+  baseDate.setHours(12, 0, 0, 0);
+
   for (let i = 0; i < count; i++) {
-    const dueDate = addMonths(new Date(firstDueDate), i);
+    const dueDate = addMonths(baseDate, i);
     installments.push({
       installmentNumber: i + 1,
       amount: installmentValue,
@@ -72,7 +80,11 @@ export const formatCPM = (value: number) => {
 
 // --- FORMATAÇÃO DE DATA ---
 export const formatDate = (date: Date | string) => {
-  return new Date(date).toLocaleDateString('pt-BR');
+  if (!date) return '-';
+  // Força interpretação local para exibição
+  const d = new Date(date);
+  return d.toLocaleDateString('pt-BR', { timeZone: 'UTC' }); 
+  // O banco salva UTC. Ao ler, forçamos UTC na string pt-BR para bater o dia.
 };
 
 // --- CÁLCULO DE LUCRO DE VENDA ---
