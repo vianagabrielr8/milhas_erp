@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useAccounts, usePrograms } from '@/hooks/useSupabaseData';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { ArrowRight, Calculator, CalendarIcon, Send, Wallet, ArrowRightLeft } from 'lucide-react';
+import { ArrowRight, Calculator, CalendarIcon, User, Wallet, ArrowRightLeft } from 'lucide-react';
 import { format } from 'date-fns';
 
 const Transferencias = () => {
@@ -17,15 +17,15 @@ const Transferencias = () => {
   const { data: programs } = usePrograms();
 
   // Estados
-  const [sourceAccount, setSourceAccount] = useState('');
-  const [destProgram, setDestProgram] = useState('');
-  const [destAccount, setDestAccount] = useState('');
+  const [selectedAccount, setSelectedAccount] = useState(''); // Titular (Gabriel/Ingrid)
+  const [sourceProgram, setSourceProgram] = useState('');     // Origem (Livelo)
+  const [destProgram, setDestProgram] = useState('');         // Destino (Latam)
   const [amount, setAmount] = useState('');
   const [bonusPercent, setBonusPercent] = useState('0');
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // --- CÁLCULOS VISUAIS (PREVISÃO) ---
+  // --- CÁLCULOS VISUAIS ---
   const calculation = useMemo(() => {
     const qtd = parseFloat(amount) || 0;
     const bonus = parseFloat(bonusPercent) || 0;
@@ -37,8 +37,13 @@ const Transferencias = () => {
 
   // --- AÇÃO DE TRANSFERIR ---
   const handleTransfer = async () => {
-    if (!sourceAccount || !destProgram || !destAccount || !amount || !date) {
+    if (!selectedAccount || !sourceProgram || !destProgram || !amount || !date) {
       toast.error('Preencha todos os campos obrigatórios.');
+      return;
+    }
+
+    if (sourceProgram === destProgram) {
+      toast.error('O programa de origem e destino não podem ser iguais.');
       return;
     }
 
@@ -53,12 +58,12 @@ const Transferencias = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Usuário não logado');
 
-      // Chama a função BLINDADA no banco
+      // Chama a função ATUALIZADA no banco
       const { error } = await supabase.rpc('perform_transfer', {
         p_user_id: user.id,
-        p_source_account_id: sourceAccount,
-        p_program_id: destProgram,
-        p_dest_account_id: destAccount,
+        p_account_id: selectedAccount,      // Titular único
+        p_source_program_id: sourceProgram, // De onde sai
+        p_dest_program_id: destProgram,     // Para onde vai
         p_amount: calculation.qtd,
         p_bonus_percent: calculation.bonus,
         p_date: date,
@@ -69,7 +74,6 @@ const Transferencias = () => {
 
       toast.success('Transferência realizada com sucesso!');
       
-      // Limpa formulário
       setAmount('');
       setBonusPercent('0');
       
@@ -81,98 +85,87 @@ const Transferencias = () => {
     }
   };
 
-  // Encontra nomes para o resumo visual
-  const sourceName = accounts?.find(a => a.id === sourceAccount)?.name || '...';
+  // Nomes para o resumo
+  const accountName = accounts?.find(a => a.id === selectedAccount)?.name || '...';
+  const sourceProgramName = programs?.find(p => p.id === sourceProgram)?.name || '...';
   const destProgramName = programs?.find(p => p.id === destProgram)?.name || '...';
-  const destAccountName = accounts?.find(a => a.id === destAccount)?.name || '...';
 
   return (
     <MainLayout>
       <PageHeader 
         title="Transferência Bonificada" 
-        description="Mova pontos entre bancos e companhias aéreas com segurança."
+        description="Mova pontos entre programas da mesma conta."
       />
 
       <div className="grid gap-6 lg:grid-cols-12 max-w-7xl mx-auto">
         
-        {/* COLUNA ESQUERDA: INPUTS (8 colunas) */}
+        {/* COLUNA ESQUERDA: INPUTS */}
         <div className="lg:col-span-7 space-y-6">
           
-          {/* BLOCO 1: ORIGEM E DESTINO */}
           <Card className="border-l-4 border-l-primary shadow-sm">
             <CardHeader className="pb-3 border-b bg-muted/20">
               <CardTitle className="text-base font-bold flex items-center gap-2 text-primary">
                 <ArrowRightLeft className="h-5 w-5" />
                 Rota da Transferência
               </CardTitle>
-              <CardDescription>Defina de onde sai e para onde vai.</CardDescription>
+              <CardDescription>Defina o titular e os programas envolvidos.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6 pt-6">
               
-              {/* ORIGEM */}
-              <div className="space-y-3">
-                <Label className="text-xs uppercase font-bold text-muted-foreground tracking-wider">De onde saem os pontos? (Origem)</Label>
-                <div className="grid md:grid-cols-1 gap-4">
-                    <div className="space-y-1">
-                        <Label>Banco / Programa Origem</Label>
-                        <Select value={sourceAccount} onValueChange={setSourceAccount}>
-                        <SelectTrigger className="h-11 bg-muted/10">
-                            <SelectValue placeholder="Selecione (Ex: Livelo, Esfera, Itaú...)" />
+              {/* 1. TITULAR DA CONTA */}
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2">
+                    <User className="h-4 w-4 text-muted-foreground" />
+                    Titular da Conta (Dono dos pontos)
+                </Label>
+                <Select value={selectedAccount} onValueChange={setSelectedAccount}>
+                  <SelectTrigger className="h-12 text-lg font-medium bg-muted/10">
+                    <SelectValue placeholder="Selecione (Ex: Gabriel, Ingrid...)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accounts?.map(acc => (
+                      <SelectItem key={acc.id} value={acc.id}>{acc.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="border-t my-2" />
+
+              {/* 2. ORIGEM E DESTINO */}
+              <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Sai de (Origem)</Label>
+                    <Select value={sourceProgram} onValueChange={setSourceProgram}>
+                        <SelectTrigger className="h-11 bg-red-50/50 border-red-100">
+                        <SelectValue placeholder="Ex: Livelo, Itaú..." />
                         </SelectTrigger>
                         <SelectContent>
-                            {accounts?.map(acc => (
-                            <SelectItem key={acc.id} value={acc.id}>{acc.name}</SelectItem>
-                            ))}
-                        </SelectContent>
-                        </Select>
-                    </div>
-                </div>
-              </div>
-
-              {/* DIVISOR VISUAL */}
-              <div className="relative flex items-center justify-center">
-                 <div className="border-t w-full absolute"></div>
-                 <div className="bg-background relative px-3 text-muted-foreground text-xs font-medium uppercase">Envia para</div>
-              </div>
-
-              {/* DESTINO */}
-              <div className="space-y-3">
-                <Label className="text-xs uppercase font-bold text-muted-foreground tracking-wider">Para onde vão? (Destino)</Label>
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <Label>Programa de Destino</Label>
-                    <Select value={destProgram} onValueChange={setDestProgram}>
-                      <SelectTrigger className="h-11 bg-muted/10">
-                        <SelectValue placeholder="Ex: Latam, Smiles..." />
-                      </SelectTrigger>
-                      <SelectContent>
                         {programs?.map(prog => (
-                          <SelectItem key={prog.id} value={prog.id}>{prog.name}</SelectItem>
+                            <SelectItem key={prog.id} value={prog.id}>{prog.name}</SelectItem>
                         ))}
-                      </SelectContent>
+                        </SelectContent>
                     </Select>
                   </div>
 
-                  <div className="space-y-1">
-                    <Label>Titular da Conta (CPF)</Label>
-                    <Select value={destAccount} onValueChange={setDestAccount}>
-                      <SelectTrigger className="h-11 bg-muted/10">
-                        <SelectValue placeholder="Selecione o Titular" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {accounts?.map(acc => (
-                          <SelectItem key={acc.id} value={acc.id}>{acc.name}</SelectItem>
+                  <div className="space-y-2">
+                    <Label>Vai para (Destino)</Label>
+                    <Select value={destProgram} onValueChange={setDestProgram}>
+                        <SelectTrigger className="h-11 bg-emerald-50/50 border-emerald-100">
+                        <SelectValue placeholder="Ex: Latam, Smiles..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                        {programs?.map(prog => (
+                            <SelectItem key={prog.id} value={prog.id}>{prog.name}</SelectItem>
                         ))}
-                      </SelectContent>
+                        </SelectContent>
                     </Select>
                   </div>
-                </div>
               </div>
-
             </CardContent>
           </Card>
 
-          {/* BLOCO 2: VALORES */}
+          {/* VALORES */}
           <Card className="shadow-sm">
             <CardHeader className="pb-3 border-b bg-muted/20">
               <CardTitle className="text-base font-bold flex items-center gap-2">
@@ -183,7 +176,7 @@ const Transferencias = () => {
             <CardContent className="space-y-4 pt-6">
               <div className="grid md:grid-cols-2 gap-6">
                 <div className="space-y-2">
-                  <Label>Quantidade a Transferir</Label>
+                  <Label>Pontos a Transferir</Label>
                   <div className="relative">
                     <Input 
                         type="number" 
@@ -197,7 +190,7 @@ const Transferencias = () => {
                 </div>
                 
                 <div className="space-y-2">
-                  <Label>Bônus da Promoção (%)</Label>
+                  <Label>Bônus (%)</Label>
                   <div className="relative">
                     <Input 
                         type="number" 
@@ -212,7 +205,7 @@ const Transferencias = () => {
               </div>
 
               <div className="space-y-2 pt-2">
-                <Label>Data da Operação</Label>
+                <Label>Data</Label>
                 <div className="relative max-w-[240px]">
                   <CalendarIcon className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                   <Input 
@@ -227,37 +220,43 @@ const Transferencias = () => {
           </Card>
         </div>
 
-        {/* COLUNA DIREITA: RESUMO (4 colunas) */}
+        {/* COLUNA DIREITA: RESUMO */}
         <div className="lg:col-span-5 space-y-6">
-            
             <Card className="h-full border-primary/20 bg-muted/10 flex flex-col shadow-lg sticky top-6">
                 <CardHeader className="bg-white rounded-t-lg border-b pb-4">
                     <CardTitle className="flex items-center gap-2 text-primary">
                         <Wallet className="h-5 w-5" />
                         Resumo da Operação
                     </CardTitle>
-                    <CardDescription>Confira os dados antes de confirmar.</CardDescription>
+                    <CardDescription>Confira antes de confirmar.</CardDescription>
                 </CardHeader>
                 
                 <CardContent className="flex-1 space-y-6 pt-6">
-                    {/* Visualização da Rota */}
                     <div className="space-y-2">
+                        <div className="flex justify-between items-center p-3 bg-white rounded-lg border shadow-sm">
+                            <span className="text-sm text-muted-foreground">Titular:</span>
+                            <span className="font-bold text-foreground flex items-center gap-2">
+                                <User className="h-4 w-4 text-primary" /> {accountName}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div className="space-y-4">
                         <div className="flex justify-between items-center text-sm">
-                            <span className="text-muted-foreground font-medium">Sai de:</span>
-                            <span className="font-bold text-foreground">{sourceName}</span>
+                            <span className="text-muted-foreground">Sai de:</span>
+                            <span className="font-medium">{sourceProgramName}</span>
+                        </div>
+                        <div className="flex justify-center text-muted-foreground/30">
+                            <ArrowRight className="h-5 w-5 rotate-90 md:rotate-0" />
                         </div>
                         <div className="flex justify-between items-center text-sm">
-                            <span className="text-muted-foreground font-medium">Entra em:</span>
-                            <div className="text-right">
-                                <div className="font-bold text-foreground">{destProgramName}</div>
-                                <div className="text-xs text-muted-foreground">{destAccountName}</div>
-                            </div>
+                            <span className="text-muted-foreground">Entra em:</span>
+                            <span className="font-bold text-foreground">{destProgramName}</span>
                         </div>
                     </div>
 
                     <div className="border-t border-dashed my-4" />
 
-                    {/* Cálculos */}
                     <div className="space-y-3">
                         <div className="flex justify-between items-center">
                             <span className="text-sm text-muted-foreground">Pontos Base</span>
@@ -265,12 +264,12 @@ const Transferencias = () => {
                         </div>
                         
                         <div className="flex justify-between items-center">
-                            <span className="text-sm text-muted-foreground">Bônus Aplicado ({calculation.bonus}%)</span>
+                            <span className="text-sm text-muted-foreground">Bônus ({calculation.bonus}%)</span>
                             <span className="font-medium text-emerald-600">+ {calculation.bonusAmount.toLocaleString('pt-BR')}</span>
                         </div>
 
                         <div className="bg-background p-4 rounded-lg border border-primary/30 mt-4">
-                            <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1 text-center">Total a Receber na {destProgramName}</div>
+                            <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1 text-center">Total a Receber</div>
                             <div className="text-3xl font-black text-center text-primary">
                                 {calculation.total.toLocaleString('pt-BR')}
                             </div>
@@ -280,22 +279,14 @@ const Transferencias = () => {
 
                 <div className="p-6 pt-0 bg-transparent">
                     <Button 
-                        className="w-full h-14 text-lg font-bold shadow-md hover:shadow-xl hover:scale-[1.01] transition-all" 
+                        className="w-full h-14 text-lg font-bold shadow-md hover:shadow-xl transition-all" 
                         onClick={handleTransfer}
                         disabled={isSubmitting}
                     >
-                        {isSubmitting ? (
-                            <div className="flex items-center gap-2">
-                                <span className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full" />
-                                Processando...
-                            </div>
-                        ) : (
-                            'Confirmar Transferência'
-                        )}
+                        {isSubmitting ? 'Processando...' : 'Confirmar Transferência'}
                     </Button>
                 </div>
             </Card>
-
         </div>
       </div>
     </MainLayout>
