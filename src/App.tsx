@@ -1,74 +1,64 @@
-import Login from "./pages/Login";
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
+import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { DataProvider } from "@/contexts/DataContext";
+
+// Páginas
 import Index from "./pages/Index";
+import Login from "./pages/Login";
+import Dashboard from "./pages/Dashboard";
+import Estoque from "./pages/Estoque";
+import ProgramDetails from "./pages/ProgramDetails"; // <--- NOVO
 import Compras from "./pages/Compras";
 import Vendas from "./pages/Vendas";
-// import Financeiro from "./pages/Financeiro"; // Removido
-import ContasPagar from "./pages/ContasPagar"; // <--- NOVO
-import ContasReceber from "./pages/ContasReceber"; // <--- NOVO
+import Transferencias from "./pages/Transferencias";
+import ContasPagar from "./pages/ContasPagar";
+import ContasReceber from "./pages/ContasReceber";
+import CartoesPagamento from "./pages/CartoesPagamento";
+import Contas from "./pages/Contas";
+import Programas from "./pages/Programas";
 import Clientes from "./pages/Clientes";
 import Fornecedores from "./pages/Fornecedores";
-import Programas from "./pages/Programas";
-import Contas from "./pages/Contas";
-import Estoque from "./pages/Estoque";
-import CartoesPagamento from "./pages/CartoesPagamento";
 import Limites from "./pages/Limites";
-import Transferencias from "./pages/Transferencias";
-import NotFound from "./pages/NotFound";
-// ... outros imports
-import Estoque from "./pages/Estoque";
-import ProgramDetails from "./pages/ProgramDetails"; // <--- IMPORT NOVO
 
-// ... dentro do <Routes>
-    <Route path="/estoque" element={<Estoque />} />
-    <Route path="/estoque/:id" element={<ProgramDetails />} /> {/* <--- ROTA NOVA */}
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 1000 * 60 * 5,
-      gcTime: 1000 * 60 * 10,
-      retry: false,
-      refetchOnWindowFocus: false,
-    },
-  },
-});
+const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <DataProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/" element={<Index />} />
-            <Route path="/estoque" element={<Estoque />} />
-            <Route path="/compras" element={<Compras />} />
-            <Route path="/vendas" element={<Vendas />} />
-            
-            {/* ROTAS FINANCEIRAS NOVAS */}
-            <Route path="/contas-pagar" element={<ContasPagar />} />
-            <Route path="/contas-receber" element={<ContasReceber />} />
-            <Route path="/cartoes" element={<CartoesPagamento />} />
-            
-            <Route path="/clientes" element={<Clientes />} />
-            <Route path="/fornecedores" element={<Fornecedores />} />
-            <Route path="/programas" element={<Programas />} />
-            <Route path="/contas" element={<Contas />} />
-            <Route path="/limites" element={<Limites />} />
-            <Route path="/transferencias" element={<Transferencias />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
-    </DataProvider>
+    <TooltipProvider>
+      <Toaster />
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Index />} />
+          <Route path="/login" element={<Login />} />
+          
+          {/* Principal */}
+          <Route path="/dashboard" element={<Dashboard />} />
+          
+          {/* Operacional */}
+          <Route path="/estoque" element={<Estoque />} />
+          <Route path="/estoque/:id" element={<ProgramDetails />} /> {/* <--- ROTA NOVA */}
+          
+          <Route path="/compras" element={<Compras />} />
+          <Route path="/vendas" element={<Vendas />} />
+          <Route path="/transferencias" element={<Transferencias />} />
+          
+          {/* Financeiro */}
+          <Route path="/financeiro/pagar" element={<ContasPagar />} />
+          <Route path="/financeiro/receber" element={<ContasReceber />} />
+          <Route path="/financeiro/cartoes" element={<CartoesPagamento />} />
+          
+          {/* Cadastros */}
+          <Route path="/cadastros/contas" element={<Contas />} />
+          <Route path="/cadastros/programas" element={<Programas />} />
+          <Route path="/cadastros/clientes" element={<Clientes />} />
+          <Route path="/cadastros/fornecedores" element={<Fornecedores />} />
+          
+          {/* Segurança */}
+          <Route path="/seguranca/limites" element={<Limites />} />
+        </Routes>
+      </BrowserRouter>
+    </TooltipProvider>
   </QueryClientProvider>
 );
 
