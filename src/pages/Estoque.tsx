@@ -1,5 +1,4 @@
 import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,7 +13,6 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 const Estoque = () => {
-  const navigate = useNavigate();
   const { data: milesBalance, isLoading: loadingBalance } = useMilesBalance();
   const { data: expiringMiles, isLoading: loadingExpiring } = useExpiringMiles();
   const { data: programs } = usePrograms();
@@ -41,7 +39,6 @@ const Estoque = () => {
       if (!item.program_name) return acc;
       if (!acc[item.program_name]) {
         acc[item.program_name] = {
-          programId: item.program_id,
           totalBalance: 0,
           totalInvested: 0,
           accounts: [],
@@ -56,7 +53,7 @@ const Estoque = () => {
         invested: item.total_invested || 0,
       });
       return acc;
-    }, {} as Record<string, { programId: string; totalBalance: number; totalInvested: number; accounts: { name: string; balance: number; avgCpm: number; invested: number }[] }>);
+    }, {} as Record<string, { totalBalance: number; totalInvested: number; accounts: { name: string; balance: number; avgCpm: number; invested: number }[] }>);
   }, [filteredBalance]);
 
   const totalMiles = filteredBalance.reduce((acc, item) => acc + (item.balance || 0), 0);
@@ -132,11 +129,11 @@ const Estoque = () => {
         {Object.entries(balanceByProgram).map(([programName, data]) => {
           const programCpm = data.totalBalance > 0 ? (data.totalInvested / data.totalBalance) * 1000 : 0;
           return (
-            <Card key={programName} className="overflow-hidden cursor-pointer hover:border-primary/50 transition-all hover:shadow-md" onClick={() => navigate(`/estoque/${data.programId}`)}>
-              <CardHeader className="bg-muted/30 pointer-events-none">
+            <Card key={programName} className="overflow-hidden">
+              <CardHeader className="bg-muted/30">
                 <CardTitle className="flex items-center justify-between"><span>{programName}</span><Badge variant="secondary">CPM: {formatCPM(programCpm)}</Badge></CardTitle>
               </CardHeader>
-              <CardContent className="pt-4 pointer-events-none">
+              <CardContent className="pt-4">
                 <div className="mb-4 pb-4 border-b">
                   <div className="flex justify-between items-center"><span className="text-muted-foreground">Total:</span><span className="text-2xl font-bold">{formatNumber(data.totalBalance)}</span></div>
                   <div className="flex justify-between items-center mt-1"><span className="text-muted-foreground">Investido:</span><span className="font-medium">{formatCurrency(data.totalInvested)}</span></div>
