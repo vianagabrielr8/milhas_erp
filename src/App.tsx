@@ -20,6 +20,13 @@ import CartoesPagamento from "./pages/CartoesPagamento";
 import Limites from "./pages/Limites";
 import Transferencias from "./pages/Transferencias";
 import NotFound from "./pages/NotFound";
+// ... outros imports
+import Estoque from "./pages/Estoque";
+import ProgramDetails from "./pages/ProgramDetails"; // <--- IMPORT NOVO
+
+// ... dentro do <Routes>
+    <Route path="/estoque" element={<Estoque />} />
+    <Route path="/estoque/:id" element={<ProgramDetails />} /> {/* <--- ROTA NOVA */}
 
 const queryClient = new QueryClient({
   defaultOptions: {
