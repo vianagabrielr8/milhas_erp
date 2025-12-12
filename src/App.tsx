@@ -6,7 +6,6 @@ import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Estoque from "./pages/Estoque";
-import ProgramDetails from "./pages/ProgramDetails";
 import Compras from "./pages/Compras";
 import Vendas from "./pages/Vendas";
 import Transferencias from "./pages/Transferencias";
@@ -31,7 +30,6 @@ const App = () => (
           <Route path="/login" element={<Login />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/estoque" element={<Estoque />} />
-          <Route path="/estoque/:id" element={<ProgramDetails />} />
           <Route path="/compras" element={<Compras />} />
           <Route path="/vendas" element={<Vendas />} />
           <Route path="/transferencias" element={<Transferencias />} />
