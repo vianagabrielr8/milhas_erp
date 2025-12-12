@@ -2,8 +2,6 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-
-// Páginas
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -31,25 +29,19 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/login" element={<Login />} />
-          
           <Route path="/dashboard" element={<Dashboard />} />
-          
           <Route path="/estoque" element={<Estoque />} />
           <Route path="/estoque/:id" element={<ProgramDetails />} />
-          
           <Route path="/compras" element={<Compras />} />
           <Route path="/vendas" element={<Vendas />} />
           <Route path="/transferencias" element={<Transferencias />} />
-          
           <Route path="/financeiro/pagar" element={<ContasPagar />} />
           <Route path="/financeiro/receber" element={<ContasReceber />} />
           <Route path="/financeiro/cartoes" element={<CartoesPagamento />} />
-          
           <Route path="/cadastros/contas" element={<Contas />} />
           <Route path="/cadastros/programas" element={<Programas />} />
           <Route path="/cadastros/clientes" element={<Clientes />} />
           <Route path="/cadastros/fornecedores" element={<Fornecedores />} />
-          
           <Route path="/seguranca/limites" element={<Limites />} />
         </Routes>
       </BrowserRouter>
