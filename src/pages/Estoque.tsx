@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom'; // <--- Import Novo
 import { MainLayout } from '@/components/layout/MainLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -19,6 +20,7 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 const Estoque = () => {
+  const navigate = useNavigate(); // <--- Hook de navegação
   const { data: milesBalance, isLoading: loadingBalance } = useMilesBalance();
   const { data: expiringMiles, isLoading: loadingExpiring } = useExpiringMiles();
   const { data: programs } = usePrograms();
@@ -49,6 +51,7 @@ const Estoque = () => {
       
       if (!acc[item.program_name]) {
         acc[item.program_name] = {
+          programId: item.program_id, // <--- Guardamos o ID aqui para usar no clique
           totalBalance: 0,
           totalInvested: 0,
           accounts: [],
@@ -65,7 +68,7 @@ const Estoque = () => {
       });
       
       return acc;
-    }, {} as Record<string, { totalBalance: number; totalInvested: number; accounts: { name: string; balance: number; avgCpm: number; invested: number }[] }>);
+    }, {} as Record<string, { programId: string; totalBalance: number; totalInvested: number; accounts: { name: string; balance: number; avgCpm: number; invested: number }[] }>);
   }, [filteredBalance]);
 
   const totalMiles = filteredBalance.reduce((acc, item) => acc + (item.balance || 0), 0);
@@ -202,8 +205,14 @@ const Estoque = () => {
           const programCpm = data.totalBalance > 0 ? (data.totalInvested / data.totalBalance) * 1000 : 0;
           
           return (
-            <Card key={programName} className="overflow-hidden">
-              <CardHeader className="bg-muted/30">
+            <Card 
+                key={programName} 
+                // --- CLASSES DE CLIQUE E HOVER ---
+                className="overflow-hidden cursor-pointer hover:border-primary/50 transition-all hover:shadow-md"
+                // --- AÇÃO DE NAVEGAR ---
+                onClick={() => navigate(`/estoque/${data.programId}`)}
+            >
+              <CardHeader className="bg-muted/30 pointer-events-none">
                 <CardTitle className="flex items-center justify-between">
                   <span>{programName}</span>
                   <Badge variant="secondary">
@@ -211,7 +220,7 @@ const Estoque = () => {
                   </Badge>
                 </CardTitle>
               </CardHeader>
-              <CardContent className="pt-4">
+              <CardContent className="pt-4 pointer-events-none">
                 <div className="mb-4 pb-4 border-b">
                   <div className="flex justify-between items-center">
                     <span className="text-muted-foreground">Total:</span>
