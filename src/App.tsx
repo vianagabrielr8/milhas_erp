@@ -8,7 +8,7 @@ import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Estoque from "./pages/Estoque";
-import ProgramDetails from "./pages/ProgramDetails"; // <--- NOVO
+import ProgramDetails from "./pages/ProgramDetails";
 import Compras from "./pages/Compras";
 import Vendas from "./pages/Vendas";
 import Transferencias from "./pages/Transferencias";
@@ -32,29 +32,24 @@ const App = () => (
           <Route path="/" element={<Index />} />
           <Route path="/login" element={<Login />} />
           
-          {/* Principal */}
           <Route path="/dashboard" element={<Dashboard />} />
           
-          {/* Operacional */}
           <Route path="/estoque" element={<Estoque />} />
-          <Route path="/estoque/:id" element={<ProgramDetails />} /> {/* <--- ROTA NOVA */}
+          <Route path="/estoque/:id" element={<ProgramDetails />} />
           
           <Route path="/compras" element={<Compras />} />
           <Route path="/vendas" element={<Vendas />} />
           <Route path="/transferencias" element={<Transferencias />} />
           
-          {/* Financeiro */}
           <Route path="/financeiro/pagar" element={<ContasPagar />} />
           <Route path="/financeiro/receber" element={<ContasReceber />} />
           <Route path="/financeiro/cartoes" element={<CartoesPagamento />} />
           
-          {/* Cadastros */}
           <Route path="/cadastros/contas" element={<Contas />} />
           <Route path="/cadastros/programas" element={<Programas />} />
           <Route path="/cadastros/clientes" element={<Clientes />} />
           <Route path="/cadastros/fornecedores" element={<Fornecedores />} />
           
-          {/* Segurança */}
           <Route path="/seguranca/limites" element={<Limites />} />
         </Routes>
       </BrowserRouter>
