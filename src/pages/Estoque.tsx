@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom'; // <--- 1. Importação nova
 import { MainLayout } from '@/components/layout/MainLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,11 +15,12 @@ import {
 import { useMilesBalance, useExpiringMiles, usePrograms, useAccounts } from '@/hooks/useSupabaseData';
 import { formatCPM, formatCurrency, formatNumber } from '@/utils/financeLogic';
 import { TransactionModal } from '@/components/transactions/TransactionModal';
-import { Plane, AlertTriangle, TrendingUp, Wallet, Plus, Filter } from 'lucide-react';
+import { Plane, AlertTriangle, TrendingUp, Wallet, Plus, Filter, MousePointerClick } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 const Estoque = () => {
+  const navigate = useNavigate(); // <--- 2. Hook de navegação
   const { data: milesBalance, isLoading: loadingBalance } = useMilesBalance();
   const { data: expiringMiles, isLoading: loadingExpiring } = useExpiringMiles();
   const { data: programs } = usePrograms();
@@ -49,6 +51,7 @@ const Estoque = () => {
       
       if (!acc[item.program_name]) {
         acc[item.program_name] = {
+          programId: item.program_id, // <--- 3. Guardando o ID para o link
           totalBalance: 0,
           totalInvested: 0,
           accounts: [],
@@ -65,7 +68,7 @@ const Estoque = () => {
       });
       
       return acc;
-    }, {} as Record<string, { totalBalance: number; totalInvested: number; accounts: { name: string; balance: number; avgCpm: number; invested: number }[] }>);
+    }, {} as Record<string, { programId: string; totalBalance: number; totalInvested: number; accounts: { name: string; balance: number; avgCpm: number; invested: number }[] }>);
   }, [filteredBalance]);
 
   const totalMiles = filteredBalance.reduce((acc, item) => acc + (item.balance || 0), 0);
@@ -86,7 +89,7 @@ const Estoque = () => {
     <MainLayout>
       <PageHeader
         title="Estoque de Milhas"
-        description="Visualize seu saldo de milhas por programa e conta"
+        description="Visualize seu saldo e clique nos cards para ver o extrato."
         action={
           <Button onClick={() => setIsModalOpen(true)}>
             <Plus className="h-4 w-4 mr-2" />
@@ -196,16 +199,24 @@ const Estoque = () => {
         </Card>
       )}
 
-      {/* Balance by Program */}
+      {/* Balance by Program - CLICÁVEL */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {Object.entries(balanceByProgram).map(([programName, data]) => {
           const programCpm = data.totalBalance > 0 ? (data.totalInvested / data.totalBalance) * 1000 : 0;
           
           return (
-            <Card key={programName} className="overflow-hidden">
-              <CardHeader className="bg-muted/30">
+            <Card 
+                key={programName} 
+                className="overflow-hidden cursor-pointer hover:border-primary/50 transition-all hover:shadow-lg group"
+                onClick={() => navigate(`/estoque/${data.programId}`)} // <--- 4. O CLIQUE MÁGICO
+            >
+              <CardHeader className="bg-muted/30 group-hover:bg-muted/50 transition-colors">
                 <CardTitle className="flex items-center justify-between">
-                  <span>{programName}</span>
+                  <div className="flex items-center gap-2">
+                    <span>{programName}</span>
+                    {/* Ícone sutil indicando que é clicável */}
+                    <MousePointerClick className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
                   <Badge variant="secondary">
                     CPM: {formatCPM(programCpm)}
                   </Badge>
