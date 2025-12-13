@@ -117,7 +117,6 @@ export const useExpiringMiles = () => {
   });
 };
 
-// --- AQUI ESTÁ A CORREÇÃO: REMOVI O CAMPO QUE TRAVAVA ---
 export const usePayableInstallments = () => {
   return useQuery({
     queryKey: ['payable_installments'],
@@ -141,7 +140,6 @@ export const usePayableInstallments = () => {
     },
   });
 };
-// --------------------------------------------------------
 
 export const useReceivableInstallments = () => {
   return useQuery({
@@ -175,7 +173,8 @@ export const useCreatePayable = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (newItem: any) => {
-      const { data, error } = await supabase.from('payable_accounts').insert(newItem).select();
+      // CORREÇÃO AQUI: Nome da tabela mudado de 'payable_accounts' para 'payables'
+      const { data, error } = await supabase.from('payables').insert(newItem).select();
       if (error) throw error; return data;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['payable_installments'] }),
@@ -186,7 +185,8 @@ export const useCreateReceivable = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (newItem: any) => {
-      const { data, error } = await supabase.from('receivable_accounts').insert(newItem).select();
+      // CORREÇÃO AQUI: Nome da tabela mudado de 'receivable_accounts' para 'receivables'
+      const { data, error } = await supabase.from('receivables').insert(newItem).select();
       if (error) throw error; return data;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['receivable_installments'] }),
