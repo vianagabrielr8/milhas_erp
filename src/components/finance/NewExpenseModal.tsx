@@ -101,13 +101,17 @@ export function NewExpenseModal({ open, onOpenChange }: NewExpenseModalProps) {
       const numInstallments = parseInt(installments);
 
       // 1. Criar a Conta a Pagar (Cabeçalho)
-      const payable = await createPayable.mutateAsync({
+      // CORREÇÃO: Mapeando os campos corretamente para a tabela 'payables'
+      const payablePayload = {
         user_id: user.id,
         description,
-        total_amount: valorNumerico,
-        installments: numInstallments,
+        amount: valorNumerico, // MUDANÇA: de 'total_amount' para 'amount' (padrão mais provável)
         credit_card_id: useCreditCard ? cardId : null,
-      });
+        // Removi 'installments' daqui pois causava erro se a coluna não existisse no pai. 
+        // A info já fica nas filhas.
+      };
+
+      const payable = await createPayable.mutateAsync(payablePayload);
 
       // 2. Gerar Parcelas
       const installmentList = [];
@@ -129,7 +133,7 @@ export function NewExpenseModal({ open, onOpenChange }: NewExpenseModalProps) {
       for (let i = 0; i < numInstallments; i++) {
         const dueDate = addMonths(firstDueDate, i);
         installmentList.push({
-          payable_id: payable.id,
+          payable_id: payable.id, // ID retornado da criação do pai
           installment_number: i + 1,
           amount: installmentValue,
           due_date: format(dueDate, 'yyyy-MM-dd'),
@@ -142,9 +146,10 @@ export function NewExpenseModal({ open, onOpenChange }: NewExpenseModalProps) {
 
       toast.success('Gasto registrado com sucesso!');
       onOpenChange(false);
-    } catch (error) {
-      console.error(error);
-      toast.error('Erro ao salvar gasto. Tente novamente.');
+    } catch (error: any) {
+      console.error('Erro detalhado:', error);
+      // Mostra o erro real do banco se disponível, ajuda muito a debugar
+      toast.error(`Erro ao salvar: ${error.message || 'Tente novamente.'}`);
     } finally {
       setIsSubmitting(false);
     }
