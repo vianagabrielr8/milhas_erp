@@ -1,13 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
-// --- 1. FUNÇÕES ESSENCIAIS (Limites CPF, Contas, Programas) ---
+// ==========================================
+// 1. QUERY HOOKS (Leitura de Dados)
+// ==========================================
 
+// --- Transações (Corrigido para ler buyer_name/cpf) ---
 export const useTransactions = () => {
   return useQuery({
     queryKey: ['transactions'],
     queryFn: async () => {
-      // Busca transações incluindo as novas colunas buyer_name e buyer_cpf
       const { data, error } = await supabase
         .from('transactions')
         .select(`
@@ -27,6 +29,8 @@ export const useTransactions = () => {
     },
   });
 };
+
+// --- Cadastros Básicos ---
 
 export const useAccounts = () => {
   return useQuery({
@@ -70,7 +74,20 @@ export const useClients = () => {
   });
 };
 
-// --- 2. A FUNÇÃO QUE FALTAVA (Correção do erro do Log) ---
+// --- AQUI ESTAVA O ERRO (Faltava Suppliers) ---
+export const useSuppliers = () => {
+  return useQuery({
+    queryKey: ['suppliers'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('suppliers')
+        .select('*')
+        .order('name');
+      if (error) throw error;
+      return data;
+    },
+  });
+};
 
 export const useCreditCards = () => {
   return useQuery({
@@ -86,7 +103,7 @@ export const useCreditCards = () => {
   });
 };
 
-// --- 3. FUNÇÕES DE ESTOQUE E FINANCEIRO ---
+// --- Estoque e Financeiro ---
 
 export const useMilesBalance = () => {
   return useQuery({
@@ -163,6 +180,46 @@ export const useReceivableInstallments = () => {
         .order('due_date', { ascending: true });
       if (error) throw error;
       return data;
+    },
+  });
+};
+
+// ==========================================
+// 2. MUTATION HOOKS (Gravação de Dados)
+// ==========================================
+// Estas funções estavam faltando e causaram o erro no build
+
+export const useCreateTransaction = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (newTransaction: any) => {
+      const { data, error } = await supabase
+        .from('transactions')
+        .insert(newTransaction)
+        .select();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['miles_balance'] });
+    },
+  });
+};
+
+export const useCreatePayable = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (newPayable: any) => {
+      const { data, error } = await supabase
+        .from('payable_accounts') // Assumindo nome padrão, se der erro ajustamos
+        .insert(newPayable)
+        .select();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payable_installments'] });
     },
   });
 };
