@@ -1,7 +1,6 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { MainLayout } from '@/components/layout/MainLayout';
-import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -13,99 +12,131 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 const ProgramDetails = () => {
-  const { id } = useParams(); // ID do Programa
+  const { id } = useParams(); // ID do Programa na URL
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   
-  // Lê o filtro da URL (se existir)
+  // 1. Pega o filtro da URL ou define 'all'
   const urlAccountId = searchParams.get('accountId') || 'all';
   
-  // Estado local para os filtros
+  // 2. Estado local do filtro
   const [selectedAccount, setSelectedAccount] = useState(urlAccountId);
-  
-  // Busca dados
+
+  // Hooks de dados
   const { data: transactions } = useTransactions();
   const { data: programs } = usePrograms();
   const { data: accounts } = useAccounts();
 
-  // 1. Atualiza a URL quando muda o filtro local
+  // 3. EFEITO VITAL: Se a URL mudar, atualiza o estado (Corrige navegação vinda do Estoque)
   useEffect(() => {
-    const params = new URLSearchParams();
-    if (selectedAccount !== 'all') {
-        params.set('accountId', selectedAccount);
+    setSelectedAccount(urlAccountId);
+  }, [urlAccountId]);
+
+  // 4. EFEITO: Se o usuário mudar o filtro manualmente, atualiza a URL
+  const handleAccountChange = (newValue: string) => {
+    setSelectedAccount(newValue);
+    const params = new URLSearchParams(searchParams);
+    if (newValue === 'all') {
+      params.delete('accountId');
+    } else {
+      params.set('accountId', newValue);
     }
     setSearchParams(params);
-  }, [selectedAccount, setSearchParams]);
+  };
 
-  // 2. Manipula troca de Programa (navega para outra URL)
+  // Trocar de Programa
   const handleProgramChange = (newProgramId: string) => {
     let url = `/estoque/${newProgramId}`;
     if (selectedAccount !== 'all') url += `?accountId=${selectedAccount}`;
     navigate(url);
   };
 
-  const currentProgramName = programs?.find(p => p.id === id)?.name || 'Detalhes';
+  const currentProgramName = programs?.find(p => String(p.id) === String(id))?.name || 'Detalhes';
 
-  // 3. Filtra e Ordena as transações
+  // 5. FILTRAGEM ROBUSTA (Converte tudo para String para evitar erro de tipo)
   const history = useMemo(() => {
     if (!transactions || !id) return [];
     
     return transactions
       .filter(t => {
-        const matchProgram = t.program_id === id;
-        const matchAccount = selectedAccount === 'all' || t.account_id === selectedAccount;
+        // Filtra pelo Programa (ID da URL)
+        const matchProgram = String(t.program_id) === String(id);
+        
+        // Filtra pela Conta (Se selecionado)
+        const matchAccount = selectedAccount === 'all' || String(t.account_id) === String(selectedAccount);
+        
         return matchProgram && matchAccount;
       })
       .sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime());
   }, [transactions, id, selectedAccount]);
 
-  // 4. Calcula os Totais com base no FILTRO
+  // Totais
   const totals = useMemo(() => {
     const entradas = history.filter(t => t.quantity > 0).reduce((acc, t) => acc + t.quantity, 0);
     const saidas = history.filter(t => t.quantity < 0).reduce((acc, t) => acc + Math.abs(t.quantity), 0);
     const saldo = entradas - saidas;
-    
     const custoTotalEntradas = history.filter(t => t.quantity > 0).reduce((acc, t) => acc + (t.total_cost || 0), 0);
     const cpmMedio = saldo > 0 ? (custoTotalEntradas / entradas) * 1000 : 0;
-
     return { entradas, saidas, saldo, cpmMedio };
   }, [history]);
 
+  // Estilos dos Badges
   const getTypeStyle = (type: string) => {
-    switch (type) {
-      case 'COMPRA': return 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20';
-      case 'BONUS': return 'bg-blue-500/10 text-blue-500 border-blue-500/20';
-      case 'VENDA': return 'bg-red-500/10 text-red-500 border-red-500/20';
-      case 'TRANSF_ENTRADA': return 'bg-indigo-500/10 text-indigo-500 border-indigo-500/20';
-      case 'TRANSF_SAIDA': return 'bg-orange-500/10 text-orange-500 border-orange-500/20';
-      default: return 'bg-gray-500/10 text-gray-500';
-    }
+    const styles: Record<string, string> = {
+      'COMPRA': 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',
+      'BONUS': 'bg-blue-500/10 text-blue-500 border-blue-500/20',
+      'VENDA': 'bg-red-500/10 text-red-500 border-red-500/20',
+      'TRANSF_ENTRADA': 'bg-indigo-500/10 text-indigo-500 border-indigo-500/20',
+      'TRANSF_SAIDA': 'bg-orange-500/10 text-orange-500 border-orange-500/20',
+    };
+    return styles[type] || 'bg-gray-500/10 text-gray-500';
   };
 
   return (
     <MainLayout>
       <div className="flex flex-col gap-6">
         
-        {/* TOPO: VOLTAR + FILTROS */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        {/* --- CABEÇALHO E FILTROS --- */}
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 border-b pb-6">
             <div className="flex items-center gap-4">
                 <Button variant="outline" size="icon" onClick={() => navigate('/estoque')}>
                     <ArrowLeft className="h-4 w-4" />
                 </Button>
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight">{currentProgramName}</h1>
-                    <p className="text-muted-foreground text-sm">Extrato detalhado.</p>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+                      <History className="h-3 w-3" />
+                      <span>Extrato Detalhado</span>
+                    </div>
                 </div>
             </div>
 
-            {/* ÁREA DE FILTROS */}
-            <div className="flex items-center gap-2 bg-muted/30 p-2 rounded-lg border">
-                <Filter className="h-4 w-4 text-muted-foreground ml-2" />
+            {/* BARRA DE FILTROS VISÍVEL */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 bg-card border p-3 rounded-lg shadow-sm">
+                <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mr-2">
+                   <Filter className="h-4 w-4" />
+                   <span>Filtrar por:</span>
+                </div>
                 
-                {/* Filtro de Programa */}
+                {/* 1. SELETOR DE CONTA */}
+                <Select value={selectedAccount} onValueChange={handleAccountChange}>
+                    <SelectTrigger className="w-full sm:w-[200px] bg-background h-9 border-input">
+                        <SelectValue placeholder="Selecione a Conta" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all" className="font-semibold">Todas as Contas</SelectItem>
+                        {accounts?.map(a => (
+                            <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+
+                {/* 2. SELETOR DE PROGRAMA (Navegação Rápida) */}
+                <div className="w-px h-6 bg-border hidden sm:block mx-1"></div>
+                
                 <Select value={id} onValueChange={handleProgramChange}>
-                    <SelectTrigger className="w-[180px] bg-background h-9">
-                        <SelectValue placeholder="Programa" />
+                    <SelectTrigger className="w-full sm:w-[160px] bg-background h-9 border-input">
+                        <SelectValue placeholder="Trocar Programa" />
                     </SelectTrigger>
                     <SelectContent>
                         {programs?.map(p => (
@@ -113,102 +144,98 @@ const ProgramDetails = () => {
                         ))}
                     </SelectContent>
                 </Select>
-
-                {/* Filtro de Conta */}
-                <Select value={selectedAccount} onValueChange={setSelectedAccount}>
-                    <SelectTrigger className="w-[180px] bg-background h-9">
-                        <SelectValue placeholder="Todas as Contas" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="all">Todas as Contas</SelectItem>
-                        {accounts?.map(a => (
-                            <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
             </div>
         </div>
 
-        {/* CARDS DE RESUMO (Respeitam o filtro) */}
+        {/* --- CARDS DE RESUMO --- */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card>
-                <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Saldo no Período</CardTitle></CardHeader>
+            <Card className="bg-muted/5 border-muted">
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Saldo (Filtrado)</CardTitle></CardHeader>
                 <CardContent>
-                    <div className="text-2xl font-bold">{formatNumber(totals.saldo)}</div>
-                    <p className="text-xs text-muted-foreground mt-1">Filtrado por: {selectedAccount === 'all' ? 'Todas contas' : accounts?.find(a => a.id === selectedAccount)?.name}</p>
+                    <div className="text-3xl font-bold text-foreground">{formatNumber(totals.saldo)}</div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {selectedAccount === 'all' ? 'Todas as contas' : accounts?.find(a => String(a.id) === String(selectedAccount))?.name || 'Conta selecionada'}
+                    </p>
                 </CardContent>
             </Card>
             <Card>
                 <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">CPM Médio (Entradas)</CardTitle></CardHeader>
                 <CardContent>
-                    <div className="text-2xl font-bold text-primary">{formatCurrency(totals.cpmMedio)}</div>
+                    <div className="text-3xl font-bold text-primary">{formatCurrency(totals.cpmMedio)}</div>
                 </CardContent>
             </Card>
             <Card>
-                <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Fluxo</CardTitle></CardHeader>
-                <CardContent className="flex justify-between text-sm items-center h-8">
-                    <div className="text-emerald-500 flex items-center gap-1 font-medium">
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Fluxo Total</CardTitle></CardHeader>
+                <CardContent className="flex justify-between items-center">
+                    <div className="text-emerald-600 flex items-center gap-1 font-bold">
                         <ArrowUpRight className="h-4 w-4"/> {formatNumber(totals.entradas)}
                     </div>
-                    <div className="h-4 w-px bg-border"></div>
-                    <div className="text-rose-500 flex items-center gap-1 font-medium">
+                    <div className="h-8 w-px bg-border mx-2"></div>
+                    <div className="text-rose-600 flex items-center gap-1 font-bold">
                         <ArrowDownRight className="h-4 w-4"/> {formatNumber(totals.saidas)}
                     </div>
                 </CardContent>
             </Card>
         </div>
 
-        {/* TABELA */}
+        {/* --- TABELA --- */}
         <Card>
-            <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                    <History className="h-4 w-4" /> Histórico de Transações
+            <CardHeader className="border-b bg-muted/20">
+                <CardTitle className="text-base flex items-center gap-2">
+                    Transações Encontradas
+                    <Badge variant="secondary" className="text-xs">{history.length}</Badge>
                 </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-0">
                 {history.length === 0 ? (
-                    <div className="text-center py-12 text-muted-foreground bg-muted/10 rounded-lg border border-dashed">
-                        Nenhuma movimentação encontrada com estes filtros.
+                    <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                        <History className="h-10 w-10 mb-4 opacity-20" />
+                        <p>Nenhuma transação encontrada com os filtros atuais.</p>
+                        {selectedAccount !== 'all' && (
+                           <Button variant="link" onClick={() => handleAccountChange('all')}>
+                             Limpar filtro de conta
+                           </Button>
+                        )}
                     </div>
                 ) : (
-                    <div className="relative overflow-x-auto rounded-md border">
+                    <div className="relative overflow-x-auto">
                         <table className="w-full text-sm text-left">
-                            <thead className="text-xs text-muted-foreground uppercase bg-muted/50">
+                            <thead className="text-xs text-muted-foreground uppercase bg-muted/50 border-b">
                                 <tr>
-                                    <th className="px-4 py-3 font-medium">Data</th>
-                                    <th className="px-4 py-3 font-medium">Conta</th> {/* Coluna Nova */}
-                                    <th className="px-4 py-3 font-medium">Tipo</th>
-                                    <th className="px-4 py-3 font-medium text-right">Qtd</th>
-                                    <th className="px-4 py-3 font-medium text-right">Custo</th>
-                                    <th className="px-4 py-3 font-medium text-right">CPM Op.</th>
+                                    <th className="px-6 py-3 font-medium">Data</th>
+                                    <th className="px-6 py-3 font-medium">Conta</th>
+                                    <th className="px-6 py-3 font-medium">Tipo</th>
+                                    <th className="px-6 py-3 font-medium text-right">Qtd</th>
+                                    <th className="px-6 py-3 font-medium text-right">Custo Total</th>
+                                    <th className="px-6 py-3 font-medium text-right">CPM Op.</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody className="divide-y">
                                 {history.map((t) => {
                                     const isPositive = t.quantity > 0;
                                     const cpmOperacao = t.quantity !== 0 ? (t.total_cost / Math.abs(t.quantity)) * 1000 : 0;
-                                    const accountName = accounts?.find(a => a.id === t.account_id)?.name || '-';
+                                    const accountName = accounts?.find(a => String(a.id) === String(t.account_id))?.name || '-';
                                     
                                     return (
-                                        <tr key={t.id} className="border-b last:border-0 hover:bg-muted/5 transition-colors">
-                                            <td className="px-4 py-3 whitespace-nowrap">
+                                        <tr key={t.id} className="hover:bg-muted/5 transition-colors">
+                                            <td className="px-6 py-4 whitespace-nowrap font-medium text-foreground">
                                                 {format(new Date(t.transaction_date), 'dd/MM/yyyy', { locale: ptBR })}
                                             </td>
-                                            <td className="px-4 py-3 text-muted-foreground font-medium">
+                                            <td className="px-6 py-4 text-muted-foreground">
                                                 {accountName}
                                             </td>
-                                            <td className="px-4 py-3">
-                                                <Badge variant="outline" className={getTypeStyle(t.type)}>
+                                            <td className="px-6 py-4">
+                                                <Badge variant="outline" className={`${getTypeStyle(t.type)} font-normal`}>
                                                     {t.type}
                                                 </Badge>
                                             </td>
-                                            <td className={`px-4 py-3 text-right font-bold ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                            <td className={`px-6 py-4 text-right font-bold ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
                                                 {isPositive ? '+' : ''}{formatNumber(t.quantity)}
                                             </td>
-                                            <td className="px-4 py-3 text-right text-muted-foreground">
+                                            <td className="px-6 py-4 text-right text-muted-foreground">
                                                 {t.total_cost > 0 ? formatCurrency(t.total_cost) : '-'}
                                             </td>
-                                            <td className="px-4 py-3 text-right text-xs text-muted-foreground">
+                                            <td className="px-6 py-4 text-right text-xs text-muted-foreground font-mono">
                                                 {t.total_cost > 0 ? formatCurrency(cpmOperacao) : '-'}
                                             </td>
                                         </tr>
