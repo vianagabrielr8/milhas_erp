@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
-// --- FUNÇÕES CORRIGIDAS PARA O LIMITES DE CPF ---
+// --- 1. FUNÇÕES ESSENCIAIS (Limites CPF, Contas, Programas) ---
 
 export const useTransactions = () => {
   return useQuery({
@@ -56,7 +56,23 @@ export const usePrograms = () => {
   });
 };
 
-// --- FUNÇÕES DO ESTOQUE E FINANCEIRO (RESTAURADAS) ---
+// --- 2. FUNÇÃO QUE FALTAVA (Clientes) ---
+
+export const useClients = () => {
+  return useQuery({
+    queryKey: ['clients'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('clients')
+        .select('*')
+        .order('name');
+      if (error) throw error;
+      return data;
+    },
+  });
+};
+
+// --- 3. FUNÇÕES DE ESTOQUE E FINANCEIRO ---
 
 export const useMilesBalance = () => {
   return useQuery({
