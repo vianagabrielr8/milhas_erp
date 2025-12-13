@@ -117,7 +117,7 @@ export const useExpiringMiles = () => {
   });
 };
 
-// --- AQUI ESTÁ A VERSÃO SEGURA QUE FUNCIONA ---
+// --- AQUI ESTÁ A CORREÇÃO: REMOVI O CAMPO QUE TRAVAVA ---
 export const usePayableInstallments = () => {
   return useQuery({
     queryKey: ['payable_installments'],
@@ -128,7 +128,6 @@ export const usePayableInstallments = () => {
           *,
           payables (
             description,
-            installments_count,
             credit_card_id,
             credit_cards (
               name
@@ -142,7 +141,7 @@ export const usePayableInstallments = () => {
     },
   });
 };
-// ----------------------------------------------
+// --------------------------------------------------------
 
 export const useReceivableInstallments = () => {
   return useQuery({
