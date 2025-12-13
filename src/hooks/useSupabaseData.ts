@@ -117,6 +117,7 @@ export const useExpiringMiles = () => {
   });
 };
 
+// --- LEITURA DE CONTAS A PAGAR (MANTIDA A QUE FUNCIONA) ---
 export const usePayableInstallments = () => {
   return useQuery({
     queryKey: ['payable_installments'],
@@ -159,7 +160,8 @@ export const useCreateTransaction = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (newItem: any) => {
-      const { data, error } = await supabase.from('transactions').insert(newItem).select();
+      // Adicionado .single() para garantir retorno de objeto único
+      const { data, error } = await supabase.from('transactions').insert(newItem).select().single();
       if (error) throw error; return data;
     },
     onSuccess: () => {
@@ -173,8 +175,8 @@ export const useCreatePayable = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (newItem: any) => {
-      // CORREÇÃO AQUI: Nome da tabela mudado de 'payable_accounts' para 'payables'
-      const { data, error } = await supabase.from('payables').insert(newItem).select();
+      // CORRIGIDO: Tabela 'payables' e adicionado .single() para retornar o ID correto
+      const { data, error } = await supabase.from('payables').insert(newItem).select().single();
       if (error) throw error; return data;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['payable_installments'] }),
@@ -185,8 +187,8 @@ export const useCreateReceivable = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (newItem: any) => {
-      // CORREÇÃO AQUI: Nome da tabela mudado de 'receivable_accounts' para 'receivables'
-      const { data, error } = await supabase.from('receivables').insert(newItem).select();
+      // CORRIGIDO: Tabela 'receivables' e adicionado .single()
+      const { data, error } = await supabase.from('receivables').insert(newItem).select().single();
       if (error) throw error; return data;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['receivable_installments'] }),
@@ -197,6 +199,7 @@ export const useCreatePayableInstallments = () => {
     const queryClient = useQueryClient();
     return useMutation({
       mutationFn: async (items: any[]) => {
+        // Parcelas em lote não precisam de .single()
         const { data, error } = await supabase.from('payable_installments').insert(items).select();
         if (error) throw error; return data;
       },
@@ -219,7 +222,7 @@ export const useCreateCreditCard = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (newItem: any) => {
-      const { data, error } = await supabase.from('credit_cards').insert(newItem).select();
+      const { data, error } = await supabase.from('credit_cards').insert(newItem).select().single();
       if (error) throw error; return data;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['credit_cards'] }),
