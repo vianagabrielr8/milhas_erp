@@ -83,23 +83,32 @@ export function NewExpenseModal({ open, onOpenChange }: NewExpenseModalProps) {
       const numInstallments = parseInt(installments);
 
       // 1. CRIA O PAI (PAYABLES)
-      // Tentei usar 'total_amount' que é o padrão, mas se der erro, o catch pega.
       const payablePayload = {
         user_id: user.id,
         description,
-        total_amount: valorNumerico, // Mudei para total_amount (padrão do banco)
+        total_amount: valorNumerico, 
         credit_card_id: useCreditCard ? cardId : null,
+        // Garante que o número de parcelas seja salvo no pai para uso futuro (melhor prática)
+        installments: numInstallments, 
       };
 
-      console.log("Enviando pai:", payablePayload);
-      const payable = await createPayable.mutateAsync(payablePayload);
-      console.log("Pai criado:", payable);
+      const payableResponse = await createPayable.mutateAsync(payablePayload);
 
-      if (!payable || !payable.id) {
-        throw new Error("Erro: ID da conta não foi gerado. Verifique o console.");
+      // BLINDAGEM MÁXIMA DO ID: Tenta pegar o ID de várias formas (objeto, array[0], objeto.id)
+      let payableId;
+      if (Array.isArray(payableResponse)) {
+          payableId = payableResponse[0]?.id;
+      } else if (payableResponse && typeof payableResponse === 'object' && 'id' in payableResponse) {
+          // Trata o caso de retorno simples (se o RLS estiver liberado e retornar single)
+          payableId = payableResponse.id; 
+      }
+      
+      if (!payableId) {
+        // Se o ID ainda for nulo, significa que a inserção falhou ou o RLS está bloqueando a leitura do retorno.
+        throw new Error("Erro Crítico: Não foi possível obter o ID da conta criada. A gravação do Pai falhou ou foi bloqueada.");
       }
 
-      // 2. CRIA OS FILHOS (PARCELAS) COM O VÍNCULO CORRETO
+      // 2. CRIA OS FILHOS (PARCELAS)
       const installmentList = [];
       let baseDateString = date.includes('T') ? date : `${date}T12:00:00`;
       let firstDueDate = new Date(baseDateString);
@@ -116,7 +125,7 @@ export function NewExpenseModal({ open, onOpenChange }: NewExpenseModalProps) {
       for (let i = 0; i < numInstallments; i++) {
         const dueDate = addMonths(firstDueDate, i);
         installmentList.push({
-          payable_id: payable.id, // AQUI ESTAVA O ERRO (agora payable.id existe)
+          payable_id: payableId, // O ID agora está garantido por uma das verificações
           installment_number: i + 1,
           amount: installmentValue,
           due_date: format(dueDate, 'yyyy-MM-dd'),
@@ -131,12 +140,7 @@ export function NewExpenseModal({ open, onOpenChange }: NewExpenseModalProps) {
       onOpenChange(false);
     } catch (error: any) {
       console.error('Erro ao salvar:', error);
-      // Se o erro for de coluna inexistente, avisa
-      if (error.message?.includes('column "total_amount"')) {
-         toast.error("Erro interno: Coluna 'total_amount' não existe. Me avise para eu trocar para 'amount'.");
-      } else {
-         toast.error(`Erro ao salvar: ${error.message || 'Tente novamente.'}`);
-      }
+      toast.error(`Falha no registro: ${error.message || 'Verifique o console para mais detalhes.'}`);
     } finally {
       setIsSubmitting(false);
     }
