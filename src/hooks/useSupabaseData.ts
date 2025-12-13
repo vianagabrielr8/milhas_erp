@@ -117,7 +117,7 @@ export const useExpiringMiles = () => {
   });
 };
 
-// --- AQUI ESTAVA O PROBLEMA: CORRIGIDO ---
+// --- AQUI ESTÁ A VERSÃO SEGURA QUE FUNCIONA ---
 export const usePayableInstallments = () => {
   return useQuery({
     queryKey: ['payable_installments'],
@@ -142,7 +142,7 @@ export const usePayableInstallments = () => {
     },
   });
 };
-// -----------------------------------------
+// ----------------------------------------------
 
 export const useReceivableInstallments = () => {
   return useQuery({
