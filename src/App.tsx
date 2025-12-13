@@ -8,14 +8,14 @@ import { DataProvider } from "@/contexts/DataContext";
 import Index from "./pages/Index";
 import Compras from "./pages/Compras";
 import Vendas from "./pages/Vendas";
-// import Financeiro from "./pages/Financeiro"; // Removido
-import ContasPagar from "./pages/ContasPagar"; // <--- NOVO
-import ContasReceber from "./pages/ContasReceber"; // <--- NOVO
+import ContasPagar from "./pages/ContasPagar";
+import ContasReceber from "./pages/ContasReceber";
 import Clientes from "./pages/Clientes";
 import Fornecedores from "./pages/Fornecedores";
 import Programas from "./pages/Programas";
 import Contas from "./pages/Contas";
 import Estoque from "./pages/Estoque";
+import ProgramDetails from "./pages/ProgramDetails"; // <--- IMPORT NOVO
 import CartoesPagamento from "./pages/CartoesPagamento";
 import Limites from "./pages/Limites";
 import Transferencias from "./pages/Transferencias";
@@ -42,11 +42,14 @@ const App = () => (
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/" element={<Index />} />
+            
+            {/* ESTOQUE E DETALHES */}
             <Route path="/estoque" element={<Estoque />} />
+            <Route path="/estoque/:id" element={<ProgramDetails />} /> {/* <--- ROTA NOVA */}
+
             <Route path="/compras" element={<Compras />} />
             <Route path="/vendas" element={<Vendas />} />
             
-            {/* ROTAS FINANCEIRAS NOVAS */}
             <Route path="/contas-pagar" element={<ContasPagar />} />
             <Route path="/contas-receber" element={<ContasReceber />} />
             <Route path="/cartoes" element={<CartoesPagamento />} />
