@@ -5,12 +5,11 @@ import { supabase } from '@/integrations/supabase/client';
 // 1. LEITURA DE DADOS (QUERIES)
 // ==========================================
 
-// --- TRANSAÇÕES (Corrigido para Limite de CPF) ---
+// --- TRANSAÇÕES (Corrigido para Limite de CPF - lê buyer_name) ---
 export const useTransactions = () => {
   return useQuery({
     queryKey: ['transactions'],
     queryFn: async () => {
-      // Busca transações incluindo as colunas de passageiro
       const { data, error } = await supabase
         .from('transactions')
         .select(`
@@ -146,7 +145,7 @@ export const useReceivableInstallments = () => {
 // ==========================================
 // 2. GRAVAÇÃO DE DADOS (MUTATIONS)
 // ==========================================
-// Adicionei aqui as funções que estavam quebrando o build
+// Adicionei TODAS as funções de criação que apareceram nos seus logs de erro
 
 export const useCreateTransaction = () => {
   const queryClient = useQueryClient();
@@ -166,6 +165,7 @@ export const useCreatePayable = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (newItem: any) => {
+      // Tenta inserir na tabela de contas a pagar
       const { data, error } = await supabase.from('payable_accounts').insert(newItem).select();
       if (error) throw error; return data;
     },
@@ -184,9 +184,7 @@ export const useCreateReceivable = () => {
   });
 };
 
-// Hooks de parcelas (Geralmente criados automaticamente pelo banco, mas se o front chama, precisamos ter)
 export const useCreatePayableInstallments = () => {
-    // Placeholder caso sua lógica seja via trigger no banco, mas para passar o build:
     const queryClient = useQueryClient();
     return useMutation({
       mutationFn: async (items: any[]) => {
@@ -206,4 +204,38 @@ export const useCreateReceivableInstallments = () => {
       },
       onSuccess: () => queryClient.invalidateQueries({ queryKey: ['receivable_installments'] }),
     });
+};
+
+// Funções extras de cartões (caso usem no futuro)
+export const useCreateCreditCard = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (newItem: any) => {
+      const { data, error } = await supabase.from('credit_cards').insert(newItem).select();
+      if (error) throw error; return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['credit_cards'] }),
+  });
+};
+
+export const useUpdateCreditCard = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...updates }: any) => {
+      const { data, error } = await supabase.from('credit_cards').update(updates).eq('id', id).select();
+      if (error) throw error; return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['credit_cards'] }),
+  });
+};
+
+export const useDeleteCreditCard = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('credit_cards').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['credit_cards'] }),
+  });
 };
