@@ -56,14 +56,28 @@ export const usePrograms = () => {
   });
 };
 
-// --- 2. FUNÇÃO QUE FALTAVA (Clientes) ---
-
 export const useClients = () => {
   return useQuery({
     queryKey: ['clients'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('clients')
+        .select('*')
+        .order('name');
+      if (error) throw error;
+      return data;
+    },
+  });
+};
+
+// --- 2. A FUNÇÃO QUE FALTAVA (Correção do erro do Log) ---
+
+export const useCreditCards = () => {
+  return useQuery({
+    queryKey: ['credit_cards'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('credit_cards')
         .select('*')
         .order('name');
       if (error) throw error;
