@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
 // ==========================================
-// 1. LEITURA DE DADOS (QUERIES)
+// 1. LEITURA DE DADOS (QUERIES) - MANTIDA IGUAL
 // ==========================================
 
 export const useTransactions = () => {
@@ -11,20 +11,10 @@ export const useTransactions = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('transactions')
-        .select(`
-          *,
-          program:programs ( name ),
-          account:accounts ( name )
-        `)
+        .select(`*, program:programs(name), account:accounts(name)`)
         .order('transaction_date', { ascending: false });
-
       if (error) throw error;
-
-      return data.map(t => ({
-        ...t,
-        program_name: t.program?.name,
-        account_name: t.account?.name
-      }));
+      return data.map(t => ({ ...t, program_name: t.program?.name, account_name: t.account?.name }));
     },
   });
 };
@@ -117,7 +107,7 @@ export const useExpiringMiles = () => {
   });
 };
 
-// --- LEITURA DE CONTAS A PAGAR (MANTIDA A QUE FUNCIONA) ---
+// --- LEITURA DE CONTAS A PAGAR (A QUE JÁ FUNCIONA) ---
 export const usePayableInstallments = () => {
   return useQuery({
     queryKey: ['payable_installments'],
@@ -135,9 +125,7 @@ export const usePayableInstallments = () => {
           )
         `)
         .order('due_date', { ascending: true });
-
-      if (error) throw error; 
-      return data;
+      if (error) throw error; return data;
     },
   });
 };
@@ -160,8 +148,7 @@ export const useCreateTransaction = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (newItem: any) => {
-      // Adicionado .single() para garantir retorno de objeto único
-      const { data, error } = await supabase.from('transactions').insert(newItem).select().single();
+      const { data, error } = await supabase.from('transactions').insert(newItem).select();
       if (error) throw error; return data;
     },
     onSuccess: () => {
@@ -175,8 +162,8 @@ export const useCreatePayable = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (newItem: any) => {
-      // CORRIGIDO: Tabela 'payables' e adicionado .single() para retornar o ID correto
-      const { data, error } = await supabase.from('payables').insert(newItem).select().single();
+      // CORREÇÃO: Removido .single() para evitar erro de RLS. Retorna array.
+      const { data, error } = await supabase.from('payables').insert(newItem).select();
       if (error) throw error; return data;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['payable_installments'] }),
@@ -187,8 +174,7 @@ export const useCreateReceivable = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (newItem: any) => {
-      // CORRIGIDO: Tabela 'receivables' e adicionado .single()
-      const { data, error } = await supabase.from('receivables').insert(newItem).select().single();
+      const { data, error } = await supabase.from('receivables').insert(newItem).select();
       if (error) throw error; return data;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['receivable_installments'] }),
@@ -199,7 +185,6 @@ export const useCreatePayableInstallments = () => {
     const queryClient = useQueryClient();
     return useMutation({
       mutationFn: async (items: any[]) => {
-        // Parcelas em lote não precisam de .single()
         const { data, error } = await supabase.from('payable_installments').insert(items).select();
         if (error) throw error; return data;
       },
@@ -222,7 +207,7 @@ export const useCreateCreditCard = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (newItem: any) => {
-      const { data, error } = await supabase.from('credit_cards').insert(newItem).select().single();
+      const { data, error } = await supabase.from('credit_cards').insert(newItem).select();
       if (error) throw error; return data;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['credit_cards'] }),
