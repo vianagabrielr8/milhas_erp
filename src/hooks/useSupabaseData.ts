@@ -132,6 +132,7 @@ export const usePayableInstallments = () => {
           *,
           payables (
             description,
+            installments:installments_count,
             credit_card_id,
             credit_cards (
               name
