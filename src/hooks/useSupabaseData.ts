@@ -1,11 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
+// --- FUNÇÕES CORRIGIDAS PARA O LIMITES DE CPF ---
+
 export const useTransactions = () => {
   return useQuery({
     queryKey: ['transactions'],
     queryFn: async () => {
-      // AQUI ESTÁ A CORREÇÃO: Buscamos tudo (*) incluindo as colunas novas
+      // Busca transações incluindo as novas colunas buyer_name e buyer_cpf
       const { data, error } = await supabase
         .from('transactions')
         .select(`
@@ -54,11 +56,12 @@ export const usePrograms = () => {
   });
 };
 
+// --- FUNÇÕES DO ESTOQUE E FINANCEIRO (RESTAURADAS) ---
+
 export const useMilesBalance = () => {
   return useQuery({
     queryKey: ['miles_balance'],
     queryFn: async () => {
-      // First fetch balances
       const { data: balanceData, error: balanceError } = await supabase
         .from('miles_balance')
         .select(`
@@ -69,14 +72,12 @@ export const useMilesBalance = () => {
 
       if (balanceError) throw balanceError;
 
-      // Then fetch summary for averages
       const { data: summaryData, error: summaryError } = await supabase
         .from('program_balance_summary')
         .select('*');
 
       if (summaryError) throw summaryError;
 
-      // Merge the data
       return balanceData.map(balance => {
         const summary = summaryData.find(
           s => s.program_id === balance.program_id && s.account_id === balance.account_id
@@ -98,12 +99,39 @@ export const useExpiringMiles = () => {
     queryKey: ['expiring_miles'],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('expiring_miles') // Access the view directly
+        .from('expiring_miles')
         .select('*')
-        .order('expiration_date', { ascending: true }); // Order by closest expiration
+        .order('expiration_date', { ascending: true });
 
       if (error) throw error;
+      return data;
+    },
+  });
+};
 
+export const usePayableInstallments = () => {
+  return useQuery({
+    queryKey: ['payable_installments'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('payable_installments')
+        .select('*')
+        .order('due_date', { ascending: true });
+      if (error) throw error;
+      return data;
+    },
+  });
+};
+
+export const useReceivableInstallments = () => {
+  return useQuery({
+    queryKey: ['receivable_installments'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('receivable_installments')
+        .select('*')
+        .order('due_date', { ascending: true });
+      if (error) throw error;
       return data;
     },
   });
