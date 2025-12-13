@@ -7,32 +7,30 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useTransactions, usePrograms, useAccounts } from '@/hooks/useSupabaseData';
 import { formatCurrency, formatNumber } from '@/utils/financeLogic';
-import { ArrowLeft, History, ArrowUpRight, ArrowDownRight, Filter } from 'lucide-react';
+import { ArrowLeft, History, ArrowUpRight, ArrowDownRight, Filter, Plus } from 'lucide-react';
+import { TransactionModal } from '@/components/transactions/TransactionModal'; // <--- Import Novo
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 const ProgramDetails = () => {
-  const { id } = useParams(); // ID do Programa na URL
+  const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   
-  // 1. Pega o filtro da URL ou define 'all'
+  const [isModalOpen, setIsModalOpen] = useState(false); // <--- Controle do Modal
+
+  // Filtros
   const urlAccountId = searchParams.get('accountId') || 'all';
-  
-  // 2. Estado local do filtro
   const [selectedAccount, setSelectedAccount] = useState(urlAccountId);
 
-  // Hooks de dados
   const { data: transactions } = useTransactions();
   const { data: programs } = usePrograms();
   const { data: accounts } = useAccounts();
 
-  // 3. EFEITO VITAL: Se a URL mudar, atualiza o estado (Corrige navegação vinda do Estoque)
   useEffect(() => {
     setSelectedAccount(urlAccountId);
   }, [urlAccountId]);
 
-  // 4. EFEITO: Se o usuário mudar o filtro manualmente, atualiza a URL
   const handleAccountChange = (newValue: string) => {
     setSelectedAccount(newValue);
     const params = new URLSearchParams(searchParams);
@@ -44,7 +42,6 @@ const ProgramDetails = () => {
     setSearchParams(params);
   };
 
-  // Trocar de Programa
   const handleProgramChange = (newProgramId: string) => {
     let url = `/estoque/${newProgramId}`;
     if (selectedAccount !== 'all') url += `?accountId=${selectedAccount}`;
@@ -53,24 +50,18 @@ const ProgramDetails = () => {
 
   const currentProgramName = programs?.find(p => String(p.id) === String(id))?.name || 'Detalhes';
 
-  // 5. FILTRAGEM ROBUSTA (Converte tudo para String para evitar erro de tipo)
   const history = useMemo(() => {
     if (!transactions || !id) return [];
     
     return transactions
       .filter(t => {
-        // Filtra pelo Programa (ID da URL)
         const matchProgram = String(t.program_id) === String(id);
-        
-        // Filtra pela Conta (Se selecionado)
         const matchAccount = selectedAccount === 'all' || String(t.account_id) === String(selectedAccount);
-        
         return matchProgram && matchAccount;
       })
       .sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime());
   }, [transactions, id, selectedAccount]);
 
-  // Totais
   const totals = useMemo(() => {
     const entradas = history.filter(t => t.quantity > 0).reduce((acc, t) => acc + t.quantity, 0);
     const saidas = history.filter(t => t.quantity < 0).reduce((acc, t) => acc + Math.abs(t.quantity), 0);
@@ -80,7 +71,6 @@ const ProgramDetails = () => {
     return { entradas, saidas, saldo, cpmMedio };
   }, [history]);
 
-  // Estilos dos Badges
   const getTypeStyle = (type: string) => {
     const styles: Record<string, string> = {
       'COMPRA': 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',
@@ -96,7 +86,7 @@ const ProgramDetails = () => {
     <MainLayout>
       <div className="flex flex-col gap-6">
         
-        {/* --- CABEÇALHO E FILTROS --- */}
+        {/* TOPO */}
         <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 border-b pb-6">
             <div className="flex items-center gap-4">
                 <Button variant="outline" size="icon" onClick={() => navigate('/estoque')}>
@@ -111,43 +101,49 @@ const ProgramDetails = () => {
                 </div>
             </div>
 
-            {/* BARRA DE FILTROS VISÍVEL */}
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 bg-card border p-3 rounded-lg shadow-sm">
-                <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mr-2">
-                   <Filter className="h-4 w-4" />
-                   <span>Filtrar por:</span>
-                </div>
-                
-                {/* 1. SELETOR DE CONTA */}
-                <Select value={selectedAccount} onValueChange={handleAccountChange}>
-                    <SelectTrigger className="w-full sm:w-[200px] bg-background h-9 border-input">
-                        <SelectValue placeholder="Selecione a Conta" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="all" className="font-semibold">Todas as Contas</SelectItem>
-                        {accounts?.map(a => (
-                            <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
+            {/* AÇÕES: Filtros + BOTÃO NOVA TRANSAÇÃO */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                <div className="flex flex-col sm:flex-row items-center gap-3 bg-card border p-2 rounded-lg shadow-sm">
+                    <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-2">
+                      <Filter className="h-4 w-4" />
+                      <span className="hidden sm:inline">Filtrar:</span>
+                    </div>
+                    
+                    <Select value={selectedAccount} onValueChange={handleAccountChange}>
+                        <SelectTrigger className="w-full sm:w-[180px] bg-background h-9 border-input">
+                            <SelectValue placeholder="Conta" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all" className="font-semibold">Todas as Contas</SelectItem>
+                            {accounts?.map(a => (
+                                <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
 
-                {/* 2. SELETOR DE PROGRAMA (Navegação Rápida) */}
-                <div className="w-px h-6 bg-border hidden sm:block mx-1"></div>
-                
-                <Select value={id} onValueChange={handleProgramChange}>
-                    <SelectTrigger className="w-full sm:w-[160px] bg-background h-9 border-input">
-                        <SelectValue placeholder="Trocar Programa" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {programs?.map(p => (
-                            <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
+                    <div className="w-px h-5 bg-border hidden sm:block"></div>
+                    
+                    <Select value={id} onValueChange={handleProgramChange}>
+                        <SelectTrigger className="w-full sm:w-[150px] bg-background h-9 border-input">
+                            <SelectValue placeholder="Programa" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {programs?.map(p => (
+                                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+
+                {/* BOTÃO MOVIDO PARA CÁ */}
+                <Button onClick={() => setIsModalOpen(true)} className="w-full sm:w-auto shadow-md">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Nova Transação
+                </Button>
             </div>
         </div>
 
-        {/* --- CARDS DE RESUMO --- */}
+        {/* CARDS */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card className="bg-muted/5 border-muted">
                 <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Saldo (Filtrado)</CardTitle></CardHeader>
@@ -178,7 +174,7 @@ const ProgramDetails = () => {
             </Card>
         </div>
 
-        {/* --- TABELA --- */}
+        {/* TABELA */}
         <Card>
             <CardHeader className="border-b bg-muted/20">
                 <CardTitle className="text-base flex items-center gap-2">
@@ -196,6 +192,10 @@ const ProgramDetails = () => {
                              Limpar filtro de conta
                            </Button>
                         )}
+                        <Button variant="outline" className="mt-4" onClick={() => setIsModalOpen(true)}>
+                           <Plus className="h-4 w-4 mr-2" />
+                           Lançar primeira transação
+                        </Button>
                     </div>
                 ) : (
                     <div className="relative overflow-x-auto">
@@ -248,6 +248,10 @@ const ProgramDetails = () => {
             </CardContent>
         </Card>
       </div>
+
+      {/* MODAL DE TRANSAÇÃO (Agora aqui dentro) */}
+      <TransactionModal open={isModalOpen} onOpenChange={setIsModalOpen} />
+      
     </MainLayout>
   );
 };
