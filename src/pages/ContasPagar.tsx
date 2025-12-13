@@ -35,7 +35,7 @@ const ContasPagar = () => {
   const { data: contasPagar } = usePayableInstallments();
   const { data: cartoes } = useCreditCards();
 
-  // --- LÓGICA DE FILTRAGEM ---
+  // --- LÓGICA DE FILTRAGEM (DATA + CARTÃO) ---
   const { inicioMes, finalMes } = useMemo(() => {
     const [ano, mes] = mesSelecionado.split('-');
     const dataBase = new Date(parseInt(ano), parseInt(mes) - 1, 1);
@@ -55,11 +55,14 @@ const ContasPagar = () => {
         if (cartaoSelecionado === "all") {
             isCartaoOk = true;
         } else if (cartaoSelecionado === "none") {
+            // Sem cartão: Verifica se não tem ID e nem objeto de cartão
             isCartaoOk = !c.payables?.credit_card_id && !c.payables?.credit_cards;
         } else {
+            // Com cartão: Verifica de 3 formas diferentes para não ter erro
             const matchIdDireto = c.payables?.credit_card_id === cartaoSelecionado;
             const matchIdObjeto = c.payables?.credit_cards?.id === cartaoSelecionado;
             
+            // Bateu o NOME do cartão?
             const nomeCartaoSelecionado = cartoes?.find(x => x.id === cartaoSelecionado)?.name;
             const nomeCartaoDaConta = c.payables?.credit_cards?.name;
             const matchNome = nomeCartaoSelecionado && nomeCartaoDaConta && nomeCartaoSelecionado === nomeCartaoDaConta;
@@ -222,9 +225,8 @@ const ContasPagar = () => {
                     )}
                   </div>
                   <div className="col-span-2 text-center">
-                    {/* AQUI ESTÁ A CORREÇÃO DE ORDEM (ATUAL/TOTAL) */}
                     <Badge variant="secondary" className="font-normal">
-                        {conta.installment_number}/{conta.payables?.installments_count || 1}
+                      {conta.installment_number}/{conta.payables?.installments_count || 1}
                     </Badge>
                   </div>
                   <div className="col-span-2 text-right font-bold text-sm text-destructive">
@@ -234,4 +236,42 @@ const ContasPagar = () => {
                     <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => openEditModal(conta)}>
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost"
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => handleDelete(conta.id)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <NewExpenseModal open={isNewModalOpen} onOpenChange={setIsNewModalOpen} />
+
+      {/* --- MODAL DE EDIÇÃO --- */}
+      <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader><DialogTitle>Editar Lançamento</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Descrição</Label>
+              <Input value={editForm.description} onChange={e => setEditForm({...editForm, description: e.target.value})} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2"><Label>Valor</Label><Input type="number" step="0.01" value={editForm.amount} onChange={e => setEditForm({...editForm, amount: e.target.value})} /></div>
+              <div className="space-y-2"><Label>Vencimento</Label><Input type="date" value={editForm.due_date} onChange={e => setEditForm({...editForm, due_date: e.target.value})} /></div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditModalOpen(false)}>Cancelar</Button>
+            <Button onClick={handleSaveEdit}><Save className="h-4 w-4 mr-2" /> Salvar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+    </MainLayout>
+  );
+};
+
+export default ContasPagar;
