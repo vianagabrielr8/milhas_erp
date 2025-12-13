@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom'; // <--- 1. Importação nova
+import { useNavigate } from 'react-router-dom';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,7 +20,7 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 const Estoque = () => {
-  const navigate = useNavigate(); // <--- 2. Hook de navegação
+  const navigate = useNavigate();
   const { data: milesBalance, isLoading: loadingBalance } = useMilesBalance();
   const { data: expiringMiles, isLoading: loadingExpiring } = useExpiringMiles();
   const { data: programs } = usePrograms();
@@ -51,7 +51,7 @@ const Estoque = () => {
       
       if (!acc[item.program_name]) {
         acc[item.program_name] = {
-          programId: item.program_id, // <--- 3. Guardando o ID para o link
+          programId: item.program_id,
           totalBalance: 0,
           totalInvested: 0,
           accounts: [],
@@ -74,6 +74,16 @@ const Estoque = () => {
   const totalMiles = filteredBalance.reduce((acc, item) => acc + (item.balance || 0), 0);
   const totalInvested = filteredBalance.reduce((acc, item) => acc + (item.total_invested || 0), 0);
   const avgCpmGlobal = totalMiles > 0 ? (totalInvested / totalMiles) * 1000 : 0;
+
+  // FUNÇÃO DE NAVEGAÇÃO INTELIGENTE
+  const handleCardClick = (programId: string) => {
+    let url = `/estoque/${programId}`;
+    // Se tiver filtro de conta, passa na URL
+    if (accountFilter !== 'all') {
+        url += `?accountId=${accountFilter}`;
+    }
+    navigate(url);
+  };
 
   if (loadingBalance || loadingExpiring) {
     return (
@@ -208,13 +218,12 @@ const Estoque = () => {
             <Card 
                 key={programName} 
                 className="overflow-hidden cursor-pointer hover:border-primary/50 transition-all hover:shadow-lg group"
-                onClick={() => navigate(`/estoque/${data.programId}`)} // <--- 4. O CLIQUE MÁGICO
+                onClick={() => handleCardClick(data.programId)} // <--- CLIQUE ATUALIZADO
             >
               <CardHeader className="bg-muted/30 group-hover:bg-muted/50 transition-colors">
                 <CardTitle className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span>{programName}</span>
-                    {/* Ícone sutil indicando que é clicável */}
                     <MousePointerClick className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                   </div>
                   <Badge variant="secondary">
