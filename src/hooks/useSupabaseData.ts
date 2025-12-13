@@ -128,8 +128,16 @@ export const usePayableInstallments = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('payable_installments')
-        // Traz tudo da parcela (*) e apenas a descrição da tabela pai (payables)
-        .select('*, payables (description)') 
+        .select(`
+          *,
+          payables (
+            description,
+            credit_card_id,
+            credit_cards (
+              name
+            )
+          )
+        `)
         .order('due_date', { ascending: true });
 
       if (error) throw error; 
