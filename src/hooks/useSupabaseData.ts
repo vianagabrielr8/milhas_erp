@@ -5,7 +5,6 @@ import { supabase } from '@/integrations/supabase/client';
 // 1. LEITURA DE DADOS (QUERIES)
 // ==========================================
 
-// --- TRANSAÇÕES (Corrigido para Limite de CPF - lê buyer_name) ---
 export const useTransactions = () => {
   return useQuery({
     queryKey: ['transactions'],
@@ -29,8 +28,6 @@ export const useTransactions = () => {
     },
   });
 };
-
-// --- CADASTROS BÁSICOS ---
 
 export const useAccounts = () => {
   return useQuery({
@@ -82,8 +79,6 @@ export const useCreditCards = () => {
   });
 };
 
-// --- ESTOQUE E FINANCEIRO ---
-
 export const useMilesBalance = () => {
   return useQuery({
     queryKey: ['miles_balance'],
@@ -122,6 +117,7 @@ export const useExpiringMiles = () => {
   });
 };
 
+// --- AQUI ESTAVA O PROBLEMA: CORRIGIDO ---
 export const usePayableInstallments = () => {
   return useQuery({
     queryKey: ['payable_installments'],
@@ -132,7 +128,7 @@ export const usePayableInstallments = () => {
           *,
           payables (
             description,
-            installments:installments_count,
+            installments_count,
             credit_card_id,
             credit_cards (
               name
@@ -146,6 +142,8 @@ export const usePayableInstallments = () => {
     },
   });
 };
+// -----------------------------------------
+
 export const useReceivableInstallments = () => {
   return useQuery({
     queryKey: ['receivable_installments'],
@@ -159,7 +157,6 @@ export const useReceivableInstallments = () => {
 // ==========================================
 // 2. GRAVAÇÃO DE DADOS (MUTATIONS)
 // ==========================================
-// Adicionei TODAS as funções de criação que apareceram nos seus logs de erro
 
 export const useCreateTransaction = () => {
   const queryClient = useQueryClient();
@@ -179,7 +176,6 @@ export const useCreatePayable = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (newItem: any) => {
-      // Tenta inserir na tabela de contas a pagar
       const { data, error } = await supabase.from('payable_accounts').insert(newItem).select();
       if (error) throw error; return data;
     },
@@ -220,7 +216,6 @@ export const useCreateReceivableInstallments = () => {
     });
 };
 
-// Funções extras de cartões (caso usem no futuro)
 export const useCreateCreditCard = () => {
   const queryClient = useQueryClient();
   return useMutation({
