@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { usePayableInstallments, useCreditCards } from '@/hooks/useSupabaseData'; // <--- Adicionado useCreditCards
+import { usePayableInstallments, useCreditCards } from '@/hooks/useSupabaseData';
 import { formatCurrency, formatDate } from '@/utils/financeLogic';
 import { format, startOfMonth, endOfMonth, isWithinInterval, addMonths, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -23,7 +23,7 @@ const ContasPagar = () => {
   
   // Filtros
   const [mesSelecionado, setMesSelecionado] = useState(format(new Date(), 'yyyy-MM'));
-  const [cartaoSelecionado, setCartaoSelecionado] = useState("all"); // <--- Novo Estado
+  const [cartaoSelecionado, setCartaoSelecionado] = useState("all");
 
   // Modais
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
@@ -33,7 +33,7 @@ const ContasPagar = () => {
 
   // Dados
   const { data: contasPagar } = usePayableInstallments();
-  const { data: cartoes } = useCreditCards(); // <--- Buscando cartões
+  const { data: cartoes } = useCreditCards();
 
   // --- LÓGICA DE FILTRAGEM (DATA + CARTÃO) ---
   const { inicioMes, finalMes } = useMemo(() => {
@@ -43,31 +43,23 @@ const ContasPagar = () => {
     return { inicioMes: startOfMonth(dataBase), finalMes: endOfMonth(dataBase) };
   }, [mesSelecionado]);
 
-const aPagarFiltrado = useMemo(() => {
+  const aPagarFiltrado = useMemo(() => {
     return contasPagar?.filter(c => {
         // 1. Filtro de Data
         const data = new Date(c.due_date.includes('T') ? c.due_date : `${c.due_date}T12:00:00`);
         const isDataOk = isWithinInterval(data, { start: inicioMes, end: finalMes });
         
-        // 2. Filtro de Cartão (VERSÃO ROBUSTA)
+        // 2. Filtro de Cartão
         let isCartaoOk = false;
 
         if (cartaoSelecionado === "all") {
             isCartaoOk = true;
         } else if (cartaoSelecionado === "none") {
-            // Sem cartão: Verifica se não tem ID e nem objeto de cartão
             isCartaoOk = !c.payables?.credit_card_id && !c.payables?.credit_cards;
         } else {
-            // Com cartão: Verifica de 3 formas diferentes para não ter erro
-            
-            // A. Bateu o ID direto na conta?
             const matchIdDireto = c.payables?.credit_card_id === cartaoSelecionado;
-            
-            // B. Bateu o ID dentro do objeto cartão?
             const matchIdObjeto = c.payables?.credit_cards?.id === cartaoSelecionado;
             
-            // C. (O PULO DO GATO) Bateu o NOME do cartão?
-            // Descobre o nome do cartão selecionado na lista de opções
             const nomeCartaoSelecionado = cartoes?.find(x => x.id === cartaoSelecionado)?.name;
             const nomeCartaoDaConta = c.payables?.credit_cards?.name;
             const matchNome = nomeCartaoSelecionado && nomeCartaoDaConta && nomeCartaoSelecionado === nomeCartaoDaConta;
@@ -163,7 +155,7 @@ const aPagarFiltrado = useMemo(() => {
             </Select>
         </div>
 
-        {/* Filtro de Cartão (NOVO) */}
+        {/* Filtro de Cartão */}
         <div className="space-y-1 w-full sm:w-auto">
             <div className="flex items-center gap-2 text-muted-foreground text-xs font-medium pl-1">
                 <CreditCard className="h-3 w-3" /> Cartão
@@ -184,7 +176,7 @@ const aPagarFiltrado = useMemo(() => {
             </Select>
         </div>
 
-        {/* Botão Limpar Filtros (Opcional visualmente) */}
+        {/* Botão Limpar Filtros */}
         {cartaoSelecionado !== 'all' && (
             <Button 
                 variant="ghost" 
@@ -230,7 +222,10 @@ const aPagarFiltrado = useMemo(() => {
                     )}
                   </div>
                   <div className="col-span-2 text-center">
-                    <Badge variant="secondary" className="font-normal">{conta.installment_number}/{conta.payables?.installments || 1}</Badge>
+                    {/* AQUI ESTÁ A CORREÇÃO: installments_count */}
+                    <Badge variant="secondary" className="font-normal">
+                        {conta.installment_number}/{conta.payables?.installments_count || 1}
+                    </Badge>
                   </div>
                   <div className="col-span-2 text-right font-bold text-sm text-destructive">
                     {formatCurrency(conta.amount)}
