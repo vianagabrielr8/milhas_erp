@@ -126,22 +126,12 @@ export const usePayableInstallments = () => {
   return useQuery({
     queryKey: ['payable_installments'],
     queryFn: async () => {
+      // Voltando para o select simples para recuperar os dados
       const { data, error } = await supabase
-        .from('payable_installments')
-        .select(`
-          *,
-          payables (
-            description,
-            installments_count,
-            credit_card_id,
-            credit_cards (
-              id,
-              name
-            )
-          )
-        `)
-        .order('due_date', { ascending: true });
-      
+          .from('payable_installments')
+          .select('*') 
+          .order('due_date', { ascending: true });
+
       if (error) throw error; 
       return data;
     },
