@@ -225,8 +225,9 @@ const ContasPagar = () => {
                     )}
                   </div>
                   <div className="col-span-2 text-center">
+                    {/* AQUI ESTÁ O PADRÃO SEGURO: 1/1 SE NÃO ACHAR TOTAL */}
                     <Badge variant="secondary" className="font-normal">
-                      {conta.installment_number}/{conta.payables?.installments_count || 1}
+                      {conta.installment_number}/{conta.payables?.installments || 1}
                     </Badge>
                   </div>
                   <div className="col-span-2 text-right font-bold text-sm text-destructive">
