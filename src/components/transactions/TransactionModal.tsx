@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import {
-  Select, // Mantido apenas para o Tipo de Transação e Parcelas (que geralmente não quebram)
+  Select, // Mantido apenas para o Tipo de Transação e Parcelas
   SelectContent,
   SelectItem,
   SelectTrigger,
@@ -537,12 +537,10 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
 
         </form>
         
-        {/* BOTÕES AGORA VÃO FORA DO FORMULÁRIO */}
         <div className="flex justify-end gap-2 pt-4 border-t pt-3">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
                 Cancelar
             </Button>
-            {/* O atributo form="transaction-form" SUBMETE o formulário pelo botão externo */}
             <Button type="submit" form="transaction-form" disabled={isSubmitting}> 
                 {isSubmitting ? 'Salvando...' : 'Registrar Transação'}
             </Button>
