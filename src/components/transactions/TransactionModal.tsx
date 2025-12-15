@@ -521,9 +521,19 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
             <div className="space-y-4"><div className="flex items-center justify-between"><Label className="flex items-center gap-2"><Calendar className="h-4 w-4" />Recebimento Parcelado?</Label><Switch checked={useInstallments} onCheckedChange={setUseInstallments} /></div>{useInstallments && (<div className="space-y-4 p-4 border rounded-lg bg-muted/20"><div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Parcelas</Label><Select value={saleInstallments} onValueChange={setSaleInstallments}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Array.from({ length: 12 }, (_, i) => i + 1).map(n => (<SelectItem key={n} value={n.toString()}>{n}x de {formatCurrency(calculatedTotal / n)}</SelectItem>))}</SelectContent></Select></div><div className="space-y-2"><Label>Data do 1º Recebimento</Label><Input type="date" value={firstReceiveDate} onChange={e => setFirstReceiveDate(e.target.value)} /></div></div></div>)}</div>
           )}
 
-          <div className="space-y-2"><Label>Observações</Label><Input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Observações (opcional)" /></div>
+          <div className="space-y-2">
+                <Label>Observações</Label>
+                <Input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Observações (opcional)" />
+            </div>
 
-          <div className="flex justify-end gap-2 pt-4"><Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>Cancelar</Button><Button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Salvando...' : 'Registrar Transação'}</Button></div>
+          <div className="flex justify-end gap-2 pt-4">
+                <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
+                    Cancelar
+                </Button>
+                <Button type="submit" disabled={isSubmitting}>
+                    {isSubmitting ? 'Salvando...' : 'Registrar Transação'}
+                </Button>
+            </div>
         </form>
       </DialogContent>
     </Dialog>
