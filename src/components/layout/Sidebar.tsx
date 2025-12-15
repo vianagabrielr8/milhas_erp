@@ -18,7 +18,6 @@ import {
   ArrowRightLeft,
   ArrowDownCircle,
   ArrowUpCircle,
-  // O ícone Truck (Fornecedores) e Users (Clientes) não serão usados no menu, mas são mantidos nas importações
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState, useEffect } from 'react';
@@ -52,9 +51,9 @@ const menuGroups = [
     items: [
       { icon: UserCircle, label: 'Contas (CPFs)', path: '/contas' },
       { icon: Plane, label: 'Programas', path: '/programas' },
-      // ALTERAÇÃO 1: 'Clientes' trocado por 'Passageiros'
+      // CORREÇÃO AQUI: 'Clientes' trocado por 'Passageiros'
       { icon: Users, label: 'Passageiros', path: '/passageiros' },
-      // ALTERAÇÃO 2: 'Fornecedores' (Truck) REMOVIDO
+      // REMOVIDO: Fornecedores
     ]
   },
   {
