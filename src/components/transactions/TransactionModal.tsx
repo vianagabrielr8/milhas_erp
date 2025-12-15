@@ -30,7 +30,7 @@ import { 
   Calendar,
   Wallet,
   AlertTriangle,
-  CalendarCheck // Novo ícone
+  CalendarCheck
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
@@ -329,20 +329,34 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* CAMPOS DE CONTA E PROGRAMA */}
+          {/* CAMPOS DE CONTA E PROGRAMA - COM FILTRO DE ATIVO */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Conta (CPF) *</Label>
               <Select value={accountId} onValueChange={setAccountId}>
                 <SelectTrigger><SelectValue placeholder="Selecione a conta" /></SelectTrigger>
-                <SelectContent>{accounts?.map(acc => (<SelectItem key={acc.id} value={acc.id}>{acc.name}</SelectItem>))}</SelectContent>
+                <SelectContent>
+                  {/* FILTRO ADICIONADO: Renderiza apenas contas ativas */}
+                  {accounts?.filter(acc => acc.active).map(acc => (
+                        <SelectItem key={acc.id} value={acc.id}>
+                            {acc.name}
+                        </SelectItem>
+                    ))}
+                </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
               <Label>Programa *</Label>
               <Select value={programId} onValueChange={setProgramId}>
                 <SelectTrigger><SelectValue placeholder="Selecione o programa" /></SelectTrigger>
-                <SelectContent>{programs?.map(prog => (<SelectItem key={prog.id} value={prog.id}>{prog.name}</SelectItem>))}</SelectContent>
+                <SelectContent>
+                  {/* FILTRO ADICIONADO: Renderiza apenas programas ativos */}
+                  {programs?.filter(prog => prog.active).map(prog => (
+                        <SelectItem key={prog.id} value={prog.id}>
+                            {prog.name}
+                        </SelectItem>
+                    ))}
+                </SelectContent>
               </Select>
             </div>
           </div>
@@ -369,7 +383,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
             <div className="space-y-2">
               <Label>Quantidade de Milhas *</Label>
               <Input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} placeholder="Ex: 50000" min="1" />
-            </div>
+              </div>
             <div className="space-y-2">
               <Label>{transactionType === 'VENDA' ? 'Valor Venda (Milheiro) *' : 'Valor Compra (Milheiro) *'}</Label>
               <div className="space-y-1">
@@ -458,7 +472,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
                   </div>
                 </div>
               ) : (
-                // INPUT MANUAL PARA QUANDO NÃO É CARTÃO (Erro de sintaxe corrigido aqui, removendo o comentário JSX)
+                // INPUT MANUAL PARA QUANDO NÃO É CARTÃO (Sintaxe corrigida)
                 <div className="space-y-4 p-4 border rounded-lg bg-muted/10">
                    <div className="space-y-2">
                       <Label className="flex items-center justify-between">
