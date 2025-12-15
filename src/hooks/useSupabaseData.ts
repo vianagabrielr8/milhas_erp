@@ -39,11 +39,13 @@ export const usePrograms = () => {
   });
 };
 
-export const useClients = () => {
+// Mude o nome da função e do queryKey
+export const usePassageiros = () => {
   return useQuery({
-    queryKey: ['clients'],
+    queryKey: ['passageiros'], // Novo nome da query
     queryFn: async () => {
-      const { data, error } = await supabase.from('clients').select('*').order('name');
+      // Aqui assumimos que sua tabela se chama 'clients' no banco, mas a usamos como 'passageiros' no código.
+      const { data, error } = await supabase.from('clients').select('*').order('name'); 
       if (error) throw error; return data;
     },
   });
