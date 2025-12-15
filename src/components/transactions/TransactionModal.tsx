@@ -73,8 +73,8 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
   const createReceivable = useCreateReceivable();
   const createReceivableInstallments = useCreateReceivableInstallments();
 
-  const [accountId, setAccountId] = useState('');
-  const [programId, setProgramId] = useState('');
+  const [accountId, setAccountId] = useState<string | undefined>(undefined);
+  const [programId, setProgramId] = useState<string | undefined>(undefined);
   const [transactionType, setTransactionType] = useState<TransactionType>('COMPRA');
   const [quantity, setQuantity] = useState('');
   const [pricePerThousand, setPricePerThousand] = useState('');
@@ -91,7 +91,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
   const [useInstallments, setUseInstallments] = useState(false);
   const [saleInstallments, setSaleInstallments] = useState('1');
   const [firstReceiveDate, setFirstReceiveDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [clientId, setClientId] = useState('');
+  const [clientId, setClientId] = useState<string | undefined>(undefined);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
