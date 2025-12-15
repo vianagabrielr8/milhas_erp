@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import {
-  Select,
+  Select, // Mantido apenas para o Tipo de Transação e Parcelas (que geralmente não quebram)
   SelectContent,
   SelectItem,
   SelectTrigger,
@@ -324,35 +324,43 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6" id="transaction-form"> 
-          {/* CAMPOS DE CONTA E PROGRAMA - Mapeamento com ID como String */}
+          {/* CAMPOS DE CONTA E PROGRAMA - Mapeamento com DATALIST (HTML PURO) */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Conta (CPF) *</Label>
-              <Select value={accountId} onValueChange={setAccountId}>
-                <SelectTrigger><SelectValue placeholder="Selecione a conta" /></SelectTrigger>
-                <SelectContent>
-                  {/* CORREÇÃO: Forçar ID para String */}
-                  {contas?.map(acc => (
-                        <SelectItem key={String(acc.id)} value={String(acc.id)}>
+              <Label htmlFor="accountIdInput">Conta (CPF) *</Label>
+              <Input 
+                id="accountIdInput"
+                list="contas-list"
+                placeholder="Selecione ou digite a conta"
+                value={accountId}
+                onChange={(e) => setAccountId(e.target.value)}
+                autoComplete="off"
+            />
+              <datalist id="contas-list">
+                    {contas?.map(acc => (
+                        <option key={String(acc.id)} value={String(acc.id)}>
                             {acc.name}
-                        </SelectItem>
+                        </option>
                     ))}
-                </SelectContent>
-              </Select>
+                </datalist>
             </div>
             <div className="space-y-2">
-              <Label>Programa *</Label>
-              <Select value={programId} onValueChange={setProgramId}>
-                <SelectTrigger><SelectValue placeholder="Selecione o programa" /></SelectTrigger>
-                <SelectContent>
-                  {/* CORREÇÃO: Forçar ID para String */}
-                  {programas?.map(prog => (
-                        <SelectItem key={String(prog.id)} value={String(prog.id)}>
+              <Label htmlFor="programIdInput">Programa *</Label>
+              <Input
+                id="programIdInput"
+                list="programas-list"
+                placeholder="Selecione ou digite o programa"
+                value={programId}
+                onChange={(e) => setProgramId(e.target.value)}
+                autoComplete="off"
+            />
+              <datalist id="programas-list">
+                    {programas?.map(prog => (
+                        <option key={String(prog.id)} value={String(prog.id)}>
                             {prog.name}
-                        </SelectItem>
+                        </option>
                     ))}
-                </SelectContent>
-              </Select>
+                </datalist>
             </div>
           </div>
 
@@ -409,27 +417,28 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
             )}
           </div>
 
-          {/* SELETORES DE FORNECEDOR/CLIENTE (PASSAGEIRO) */}
+          {/* SELETORES DE FORNECEDOR/CLIENTE (PASSAGEIRO) - DATALIST */}
           {transactionType === 'COMPRA' && (
             <div className="space-y-2"><Label>Fornecedor</Label><Select value={supplierId} onValueChange={setSupplierId}><SelectTrigger><SelectValue placeholder="Selecione (opcional)" /></SelectTrigger><SelectContent>{suppliers?.map(sup => (<SelectItem key={sup.id} value={sup.id}>{sup.name}</SelectItem>))}</SelectContent></Select></div>
           )}
           {transactionType === 'VENDA' && (
-                // Mapeamento com ID como String
             <div className="space-y-2">
-                <Label>Passageiro *</Label>
-                <Select value={clientId} onValueChange={setClientId}>
-                    <SelectTrigger>
-                        <SelectValue placeholder="Selecione (obrigatório para CPF/Limite)" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {/* CORREÇÃO: Forçar ID para String */}
-                        {passageiros?.map(pass => (
-                            <SelectItem key={String(pass.id)} value={String(pass.id)}>
-                                {pass.name}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
+                <Label htmlFor="clientIdInput">Passageiro *</Label>
+                <Input
+                    id="clientIdInput"
+                    list="passageiros-list"
+                    placeholder="Selecione ou digite o passageiro"
+                    value={clientId}
+                    onChange={(e) => setClientId(e.target.value)}
+                    autoComplete="off"
+                />
+              <datalist id="passageiros-list">
+                    {passageiros?.map(pass => (
+                        <option key={String(pass.id)} value={String(pass.id)}>
+                            {pass.name}
+                        </option>
+                    ))}
+                </datalist>
                 {cpfAlert && (<div className={`text-xs p-2 rounded border mt-2 flex items-center gap-2 ${cpfAlert.type === 'error' ? 'bg-destructive/10 text-destructive border-destructive/20' : cpfAlert.type === 'success' ? 'bg-success/10 text-success border-success/20' : 'bg-warning/10 text-warning border-warning/20'}`}>{cpfAlert.type === 'error' && <AlertTriangle className="h-3 w-3" />}{cpfAlert.type === 'success' && <TrendingUp className="h-3 w-3" />}{cpfAlert.msg}</div>)}
             </div>
           )}
