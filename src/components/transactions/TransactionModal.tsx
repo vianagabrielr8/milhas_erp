@@ -70,7 +70,6 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
   const { data: accounts } = useAccounts();
   const { data: creditCards } = useCreditCards();
   const { data: milesBalance } = useMilesBalance();
-  // CORREÇÃO AQUI: clients renomeado para passageiros
   const { data: passageiros } = usePassageiros(); 
   const { data: suppliers } = useSuppliers();
   
@@ -406,7 +405,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
             <div className="space-y-2"><Label>Fornecedor</Label><Select value={supplierId} onValueChange={setSupplierId}><SelectTrigger><SelectValue placeholder="Selecione (opcional)" /></SelectTrigger><SelectContent>{suppliers?.map(sup => (<SelectItem key={sup.id} value={sup.id}>{sup.name}</SelectItem>))}</SelectContent></Select></div>
           )}
           {transactionType === 'VENDA' && (
-                // CORREÇÃO AQUI: Troquei {pass.nome} por {pass.name}
+                // CORREÇÃO: Usando {pass.name}
             <div className="space-y-2">
                 <Label>Passageiro *</Label>
                 <Select value={clientId} onValueChange={setClientId}>
@@ -416,7 +415,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
                     <SelectContent>
                         {passageiros?.map(pass => (
                             <SelectItem key={pass.id} value={pass.id}>
-                                {pass.name} {/* <--- CORRIGIDO */}
+                                {pass.name}
                             </SelectItem>
                         ))}
                     </SelectContent>
@@ -459,7 +458,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
                   </div>
                 </div>
               ) : (
-                {/* INPUT MANUAL PARA QUANDO NÃO É CARTÃO */}
+                // INPUT MANUAL PARA QUANDO NÃO É CARTÃO (Erro de sintaxe corrigido aqui, removendo o comentário JSX)
                 <div className="space-y-4 p-4 border rounded-lg bg-muted/10">
                    <div className="space-y-2">
                       <Label className="flex items-center justify-between">
