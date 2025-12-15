@@ -466,7 +466,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
                       </Select>
                     </div>
                   </div>
-                </div>
+                  </div>
               ) : (
                 // INPUT MANUAL PARA QUANDO NÃO É CARTÃO (Sintaxe corrigida)
                 <div className="space-y-4 p-4 border rounded-lg bg-muted/10">
