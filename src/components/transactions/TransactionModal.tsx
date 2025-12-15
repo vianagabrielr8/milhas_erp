@@ -329,15 +329,15 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* CAMPOS DE CONTA E PROGRAMA - COM FILTRO DE ATIVO */}
+          {/* CAMPOS DE CONTA E PROGRAMA - COM FILTRO DE ATIVO E SAFE MAPPING */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Conta (CPF) *</Label>
               <Select value={accountId} onValueChange={setAccountId}>
                 <SelectTrigger><SelectValue placeholder="Selecione a conta" /></SelectTrigger>
                 <SelectContent>
-                  {/* FILTRO ADICIONADO: Renderiza apenas contas ativas */}
-                  {accounts?.filter(acc => acc.active).map(acc => (
+                  {/* CORREÇÃO: Padrão de mapeamento seguro (&& e filter) */}
+                  {accounts && accounts.filter(acc => acc.active).map(acc => (
                         <SelectItem key={acc.id} value={acc.id}>
                             {acc.name}
                         </SelectItem>
@@ -350,8 +350,8 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
               <Select value={programId} onValueChange={setProgramId}>
                 <SelectTrigger><SelectValue placeholder="Selecione o programa" /></SelectTrigger>
                 <SelectContent>
-                  {/* FILTRO ADICIONADO: Renderiza apenas programas ativos */}
-                  {programs?.filter(prog => prog.active).map(prog => (
+                  {/* CORREÇÃO: Padrão de mapeamento seguro (&& e filter) */}
+                  {programs && programs.filter(prog => prog.active).map(prog => (
                         <SelectItem key={prog.id} value={prog.id}>
                             {prog.name}
                         </SelectItem>
@@ -419,7 +419,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
             <div className="space-y-2"><Label>Fornecedor</Label><Select value={supplierId} onValueChange={setSupplierId}><SelectTrigger><SelectValue placeholder="Selecione (opcional)" /></SelectTrigger><SelectContent>{suppliers?.map(sup => (<SelectItem key={sup.id} value={sup.id}>{sup.name}</SelectItem>))}</SelectContent></Select></div>
           )}
           {transactionType === 'VENDA' && (
-                // CORREÇÃO: Usando {pass.name}
+                // CORREÇÃO: Padrão de mapeamento seguro (&&) e usando {pass.name}
             <div className="space-y-2">
                 <Label>Passageiro *</Label>
                 <Select value={clientId} onValueChange={setClientId}>
@@ -427,9 +427,9 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
                         <SelectValue placeholder="Selecione (obrigatório para CPF/Limite)" />
                     </SelectTrigger>
                     <SelectContent>
-                        {passageiros?.map(pass => (
+                        {passageiros && passageiros.map(pass => (
                             <SelectItem key={pass.id} value={pass.id}>
-                                {pass.name}
+                                {pass.name} {/* CORRIGIDO */}
                             </SelectItem>
                         ))}
                     </SelectContent>
