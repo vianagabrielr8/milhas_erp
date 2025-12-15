@@ -40,16 +40,26 @@ const NovaVenda = () => {
   const createReceivable = useCreateReceivable();
   const createReceivableInstallments = useCreateReceivableInstallments();
 
-  const [formData, setFormData] = useState({
-    program_id: '',
-    account_id: '',
-    client_id: '',
-    quantity: '',
-    sale_price: '',
-    transaction_date: format(new Date(), 'yyyy-MM-dd'),
-    installments: '1',
-    notes: '',
-  });
+const [formData, setFormData] = useState<{
+  program_id?: string;
+  account_id?: string;
+  client_id?: string;
+  quantity: string;
+  sale_price: string;
+  transaction_date: string;
+  installments: string;
+  notes: string;
+}>({
+  program_id: undefined,
+  account_id: undefined,
+  client_id: undefined,
+  quantity: '',
+  sale_price: '',
+  transaction_date: format(new Date(), 'yyyy-MM-dd'),
+  installments: '1',
+  notes: '',
+});
+
 
   const [calculatedSPM, setCalculatedSPM] = useState<number>(0);
   const [availableBalance, setAvailableBalance] = useState<number>(0);
