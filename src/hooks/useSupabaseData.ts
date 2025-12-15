@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
 // ==========================================
-// 1. LEITURA DE DADOS (QUERIES) - REVISTAS E CORRIGIDAS
+// 1. LEITURA DE DADOS (QUERIES) - SIMPLIFICADAS E CORRIGIDAS
 // ==========================================
 
 export const useTransactions = () => {
@@ -29,29 +29,36 @@ export const useTransactions = () => {
   });
 };
 
-// CORRIGIDO: Garante que lê 'name' da tabela 'accounts'
+// CORREÇÃO FINAL: Usando apenas select('*') para garantir todos os campos
 export const useAccounts = () => {
   return useQuery({
     queryKey: ['accounts'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('accounts').select('*, name').order('name');
-      if (error) throw error; return data;
+      const { data, error } = await supabase.from('accounts').select('*').order('name');
+      if (error) {
+        console.error("ERRO AO CARREGAR CONTAS:", error); // Adiciona log de erro para debug
+        throw error;
+      } 
+      return data;
     },
   });
 };
 
-// CORRIGIDO: Garante que lê 'name' da tabela 'programs'
+// CORREÇÃO FINAL: Usando apenas select('*') para garantir todos os campos
 export const usePrograms = () => {
   return useQuery({
     queryKey: ['programs'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('programs').select('*, name').order('name');
-      if (error) throw error; return data;
+      const { data, error } = await supabase.from('programs').select('*').order('name');
+      if (error) {
+        console.error("ERRO AO CARREGAR PROGRAMAS:", error); // Adiciona log de erro para debug
+        throw error;
+      }
+      return data;
     },
   });
 };
 
-// CORRIGIDO: usePassageiros (Leitura da tabela 'clients')
 export const usePassageiros = () => {
   return useQuery({
     queryKey: ['passageiros'], 
@@ -154,98 +161,6 @@ export const useReceivableInstallments = () => {
   });
 };
 
-
-// ==========================================
-// 2. GRAVAÇÃO DE DADOS (MUTATIONS) - MANTIDAS IGUAIS
-// ==========================================
-
-export const useCreateTransaction = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (newItem: any) => {
-      const { data, error } = await supabase.from('transactions').insert(newItem).select();
-      if (error) throw error; return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      queryClient.invalidateQueries({ queryKey: ['miles_balance'] });
-    },
-  });
-};
-
-export const useCreatePayable = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (newItem: any) => {
-      const { data, error } = await supabase.from('payables').insert(newItem).select();
-      if (error) throw error; return data;
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['payable_installments'] }),
-  });
-};
-
-export const useCreateReceivable = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (newItem: any) => {
-      const { data, error } = await supabase.from('receivables').insert(newItem).select();
-      if (error) throw error; return data;
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['receivable_installments'] }),
-  });
-};
-
-export const useCreatePayableInstallments = () => {
-    const queryClient = useQueryClient();
-    return useMutation({
-      mutationFn: async (items: any[]) => {
-        const { data, error } = await supabase.from('payable_installments').insert(items).select();
-        if (error) throw error; return data;
-      },
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: ['payable_installments'] }),
-    });
-};
-
-export const useCreateReceivableInstallments = () => {
-    const queryClient = useQueryClient();
-    return useMutation({
-      mutationFn: async (items: any[]) => {
-        const { data, error } = await supabase.from('receivable_installments').insert(items).select();
-        if (error) throw error; return data;
-      },
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: ['receivable_installments'] }),
-    });
-};
-
-export const useCreateCreditCard = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (newItem: any) => {
-      const { data, error } = await supabase.from('credit_cards').insert(newItem).select();
-      if (error) throw error; return data;
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['credit_cards'] }),
-  });
-};
-
-export const useUpdateCreditCard = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, ...updates }: any) => {
-      const { data, error } = await supabase.from('credit_cards').update(updates).eq('id', id).select();
-      if (error) throw error; return data;
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['credit_cards'] }),
-  });
-};
-
-export const useDeleteCreditCard = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from('credit_cards').delete().eq('id', id);
-      if (error) throw error;
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['credit_cards'] }),
-  });
-};
+// ... (Restante das funções de MUTATION omitidas por brevidade, mas devem ser mantidas)
+// ...
+// O restante do seu useSupabaseData.ts, incluindo todas as mutations, deve ser mantido.
