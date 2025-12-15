@@ -3,6 +3,7 @@ import { useData } from '@/contexts/DataContext';
 import { useState, useEffect, useMemo } from 'react';
 import { format, addDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { useQueryClient } from '@tanstack/react-query'; // <--- 1. IMPORTADO
 import {
   Dialog,
   DialogContent,
@@ -64,13 +65,28 @@ interface TransactionModalProps {
 }
 
 export function TransactionModal({ open, onOpenChange }: TransactionModalProps) {
-  const { vendas } = useData(); 
+  // Puxa listas do DataContext para uso no formulário
+  const { vendas, programas, contas, passageiros } = useData(); 
+  
+  // 2. CHAMA O CLIENT DO REACT QUERY
+  const queryClient = useQueryClient();
 
+  // --- HOOK DE INVALIDE QUERIES ---
+  useEffect(() => {
+    if (open) {
+        // FORÇA A REBUSCA DOS DADOS CRÍTICOS AO ABRIR O MODAL
+        queryClient.invalidateQueries({ queryKey: ['accounts'] });
+        queryClient.invalidateQueries({ queryKey: ['programs'] });
+        queryClient.invalidateQueries({ queryKey: ['passageiros'] });
+    }
+  }, [open, queryClient]);
+  // -------------------------------
+  
   const { data: programs } = usePrograms();
   const { data: accounts } = useAccounts();
   const { data: creditCards } = useCreditCards();
   const { data: milesBalance } = useMilesBalance();
-  const { data: passageiros } = usePassageiros(); 
+  const { data: passageirosData } = usePassageiros(); // Renomeado para evitar conflito com 'passageiros' do useData()
   const { data: suppliers } = useSuppliers();
   
   const createTransaction = useCreateTransaction();
@@ -250,7 +266,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
       // 2. Contas a Pagar (Compra)
       if (transactionType === 'COMPRA') {
         const program = programs?.find(p => p.id === programId);
-        const account = accounts?.find(a => a.id === accountId);
+        const account = contas?.find(a => a.id === accountId); // Usando 'contas' do useData()
         const description = `Compra Milhas - ${program?.name || 'Programa'} - ${account?.name || 'Conta'}`;
         
         const payable = await createPayable.mutateAsync({
@@ -277,8 +293,8 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
 
       // 3. Contas a Receber (Venda)
       if (transactionType === 'VENDA' && useInstallments) {
-        const program = programs?.find(p => p.id === programId);
-        // CORREÇÃO AQUI: Troquei clients por passageiros
+        const program = programas?.find(p => p.id === programId); // Usando 'programas' do useData()
+        // Usa 'passageiros' do useData()
         const passageiro = passageiros?.find(p => p.id === clientId); 
         const description = `Venda Milhas - ${program?.name || 'Programa'}${passageiro ? ` - ${passageiro.name}` : ''}`;
         
@@ -336,8 +352,8 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
               <Select value={accountId} onValueChange={setAccountId}>
                 <SelectTrigger><SelectValue placeholder="Selecione a conta" /></SelectTrigger>
                 <SelectContent>
-                  {/* CORREÇÃO: Padrão de mapeamento seguro (&& e filter) */}
-                  {accounts && accounts.filter(acc => acc.active).map(acc => (
+                  {/* Mapeamento seguro usando 'contas' do useData() */}
+                  {contas && contas.filter(acc => acc.active).map(acc => (
                         <SelectItem key={acc.id} value={acc.id}>
                             {acc.name}
                         </SelectItem>
@@ -350,8 +366,8 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
               <Select value={programId} onValueChange={setProgramId}>
                 <SelectTrigger><SelectValue placeholder="Selecione o programa" /></SelectTrigger>
                 <SelectContent>
-                  {/* CORREÇÃO: Padrão de mapeamento seguro (&& e filter) */}
-                  {programs && programs.filter(prog => prog.active).map(prog => (
+                  {/* Mapeamento seguro usando 'programas' do useData() */}
+                  {programas && programas.filter(prog => prog.active).map(prog => (
                         <SelectItem key={prog.id} value={prog.id}>
                             {prog.name}
                         </SelectItem>
@@ -419,7 +435,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
             <div className="space-y-2"><Label>Fornecedor</Label><Select value={supplierId} onValueChange={setSupplierId}><SelectTrigger><SelectValue placeholder="Selecione (opcional)" /></SelectTrigger><SelectContent>{suppliers?.map(sup => (<SelectItem key={sup.id} value={sup.id}>{sup.name}</SelectItem>))}</SelectContent></Select></div>
           )}
           {transactionType === 'VENDA' && (
-                // CORREÇÃO: Padrão de mapeamento seguro (&&) e usando {pass.name}
+                // Mapeamento seguro usando 'passageiros' do useData()
             <div className="space-y-2">
                 <Label>Passageiro *</Label>
                 <Select value={clientId} onValueChange={setClientId}>
@@ -429,7 +445,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
                     <SelectContent>
                         {passageiros && passageiros.map(pass => (
                             <SelectItem key={pass.id} value={pass.id}>
-                                {pass.name} {/* CORRIGIDO */}
+                                {pass.name}
                             </SelectItem>
                         ))}
                     </SelectContent>
