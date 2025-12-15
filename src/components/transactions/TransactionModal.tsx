@@ -3,7 +3,7 @@ import { useData } from '@/contexts/DataContext';
 import { useState, useEffect, useMemo } from 'react';
 import { format, addDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { useQueryClient } from '@tanstack/react-query'; 
+// REMOVIDO: import { useQueryClient } from '@tanstack/react-query'; // NÃO É MAIS NECESSÁRIO
 import {
   Dialog,
   DialogContent,
@@ -36,12 +36,12 @@ import { 
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { 
-  usePrograms, 
-  useAccounts, 
-  useCreditCards, 
-  useMilesBalance,
-  usePassageiros,
-  useSuppliers,
+  // REMOVIDO: usePrograms, 
+  // REMOVIDO: useAccounts, 
+  useCreditCards, // MANTIDO, POIS NÃO ESTÁ NO useData()
+  useMilesBalance, // MANTIDO, POIS NÃO ESTÁ NO useData()
+  // REMOVIDO: usePassageiros,
+  useSuppliers, // MANTIDO, POIS NÃO ESTÁ NO useData()
   useCreateTransaction,
   useCreatePayable,
   useCreatePayableInstallments,
@@ -65,27 +65,15 @@ interface TransactionModalProps {
 }
 
 export function TransactionModal({ open, onOpenChange }: TransactionModalProps) {
-  // Puxa listas do DataContext para uso no formulário
+  // --- APENAS O CONTEXTO É USADO PARA LISTAS ---
   const { vendas, programas, contas, passageiros } = useData(); 
   
-  const queryClient = useQueryClient();
+  // REMOVIDO: const queryClient = useQueryClient();
+  // REMOVIDO: Bloco useEffect para Invalidação de Queries
 
-  // --- HOOK DE INVALIDE QUERIES ---
-  useEffect(() => {
-    if (open) {
-        // FORÇA A REBUSCA DOS DADOS CRÍTICOS AO ABRIR O MODAL
-        queryClient.invalidateQueries({ queryKey: ['accounts'] });
-        queryClient.invalidateQueries({ queryKey: ['programs'] });
-        queryClient.invalidateQueries({ queryKey: ['passageiros'] });
-    }
-  }, [open, queryClient]);
-  // -------------------------------
-  
-  const { data: programsData } = usePrograms();
-  const { data: accountsData } = useAccounts();
+  // --- HOOKS DE DADOS EXTERNOS REMANESCENTES ---
   const { data: creditCards } = useCreditCards();
   const { data: milesBalance } = useMilesBalance();
-  const { data: passageirosData } = usePassageiros(); 
   const { data: suppliers } = useSuppliers();
   
   const createTransaction = useCreateTransaction();
@@ -350,7 +338,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
               <Select value={accountId} onValueChange={setAccountId}>
                 <SelectTrigger><SelectValue placeholder="Selecione a conta" /></SelectTrigger>
                 <SelectContent>
-                  {/* TENTATIVA FINAL: Mapeamento simples e direto */}
+                  {/* Mapeamento simples e direto */}
                   {contas?.map(acc => (
                         <SelectItem key={acc.id} value={acc.id}>
                             {acc.name}
@@ -364,7 +352,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
               <Select value={programId} onValueChange={setProgramId}>
                 <SelectTrigger><SelectValue placeholder="Selecione o programa" /></SelectTrigger>
                 <SelectContent>
-                  {/* TENTATIVA FINAL: Mapeamento simples e direto */}
+                  {/* Mapeamento simples e direto */}
                   {programas?.map(prog => (
                         <SelectItem key={prog.id} value={prog.id}>
                             {prog.name}
@@ -528,9 +516,8 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
                           <span className="text-muted-foreground">{inst.installmentNumber}ª parcela - {format(inst.dueDate, 'dd/MM/yyyy', { locale: ptBR })}</span>
                           <span className="font-medium">{formatCurrency(inst.amount)}</span>
                         </div>
-                      ))}
                     </div>
-                  </CardContent>
+                  </div>
                 </Card>
               )}
             </div>
