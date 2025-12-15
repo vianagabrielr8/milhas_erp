@@ -83,7 +83,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
   const [pricePerThousand, setPricePerThousand] = useState(''); 
   const [transactionDate, setTransactionDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [expirationDate, setExpirationDate] = useState('');
-  [notes, setNotes] = useState('');
+  const [notes, setNotes] = useState('');
   
   // Purchase specific
   const [useCreditCard, setUseCreditCard] = useState(false);
@@ -541,4 +541,4 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
       </DialogContent>
     </Dialog>
   );
-}
+      }
