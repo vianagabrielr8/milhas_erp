@@ -194,10 +194,13 @@ const [formData, setFormData] = useState<{
                 <div className="space-y-2">
                   <Label>Programa *</Label>
                   <Select
-                    value={formData.program_id}
-                    onValueChange={(value) => setFormData({ ...formData, program_id: value })}
-                    required
-                  >
+<Select
+  value={formData.program_id}
+  onValueChange={(value) =>
+    setFormData(prev => ({ ...prev, program_id: value }))
+  }
+>
+
                     <SelectTrigger>
                       <SelectValue placeholder="Selecione" />
                     </SelectTrigger>
