@@ -29,24 +29,37 @@ export const useTransactions = () => {
   });
 };
 
-// ACCOUNTS - CORREÇÃO DE STABILITY (Retorna [] em caso de erro)
+// ACCOUNTS - COM FILTRO POR USER (OBRIGATÓRIO COM RLS)
 export const useAccounts = () => {
-  return useQuery({
-    queryKey: ['accounts'],
-    queryFn: async () => {
-      console.log("FETCH: Executando consulta ACCOUNTS..."); // Log de início
-      const { data, error } = await supabase.from('accounts').select('*').order('name');
-      
-      if (error) {
-        console.error("FETCH ERROR ACCOUNTS:", error); // Log de erro em vermelho
-        return []; // Retorna array vazio em caso de falha de RLS ou conexão
-      } 
-      
-      console.log("FETCH SUCESSO ACCOUNTS. Itens:", data.length); // Log de sucesso
-      return data;
-    },
-  });
+  return useQuery({
+    queryKey: ['accounts'],
+    queryFn: async () => {
+      console.log('FETCH: Executando consulta ACCOUNTS...');
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.warn('FETCH ACCOUNTS: usuário não logado');
+        return [];
+      }
+
+      const { data, error } = await supabase
+        .from('accounts')
+        .select('*')
+        .eq('user_id', user.id)   // 🔥 ESSENCIAL
+        .eq('active', true)
+        .order('name');
+
+      if (error) {
+        console.error('FETCH ERROR ACCOUNTS:', error);
+        return [];
+      }
+
+      console.log('FETCH SUCESSO ACCOUNTS. Itens:', data.length);
+      return data;
+    },
+  });
 };
+
 
 // PROGRAMS - CORREÇÃO DE STABILITY (Retorna [] em caso de erro)
 export const usePrograms = () => {
