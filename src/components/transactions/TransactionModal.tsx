@@ -39,7 +39,7 @@ import { 
   useAccounts, 
   useCreditCards, 
   useMilesBalance,
-  usePassageiros, // <-- CORREÇÃO: useClients substituído por usePassageiros
+  usePassageiros,
   useSuppliers,
   useCreateTransaction,
   useCreatePayable,
@@ -71,7 +71,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
   const { data: creditCards } = useCreditCards();
   const { data: milesBalance } = useMilesBalance();
   // CORREÇÃO AQUI: clients renomeado para passageiros
-  const { data: passageiros } = usePassageiros(); 
+  const { data: passageiros } = usePassageiros(); 
   const { data: suppliers } = useSuppliers();
   
   const createTransaction = useCreateTransaction();
@@ -201,9 +201,9 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
       v.programaId === programId &&
       new Date(v.dataVenda) >= umAnoAtras
     );
-    // ATENÇÃO: Esta lógica usa a tabela 'vendas' antiga. 
+    // ATENÇÃO: Esta lógica usa a tabela 'vendas' antiga. 
     // A nova lógica de CPF deve ser verificada na página /limites
-    const clientesUsados = new Set(vendasRelevantes.map(v => v.clienteId)); 
+    const clientesUsados = new Set(vendasRelevantes.map(v => v.clienteId)); 
     const qtdUsados = clientesUsados.size;
     const clienteJaComprou = clientesUsados.has(clientId);
 
@@ -279,8 +279,8 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
       // 3. Contas a Receber (Venda)
       if (transactionType === 'VENDA' && useInstallments) {
         const program = programs?.find(p => p.id === programId);
-        // CORREÇÃO AQUI: Troquei clients por passageiros
-        const passageiro = passageiros?.find(p => p.id === clientId); 
+        // CORREÇÃO AQUI: Troquei clients por passageiros
+        const passageiro = passageiros?.find(p => p.id === clientId); 
         const description = `Venda Milhas - ${program?.name || 'Programa'}${passageiro ? ` - ${passageiro.name}` : ''}`;
         
         const receivable = await createReceivable.mutateAsync({
@@ -330,7 +330,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* ... Campos de Conta e Programa (Sem alterações) ... */}
+          {/* CAMPOS DE CONTA E PROGRAMA */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Conta (CPF) *</Label>
@@ -380,7 +380,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
             </div>
           </div>
 
-          {/* ... Previews de CPM e Lucro (Sem alterações) ... */}
+          {/* PREVIEWS DE CPM E LUCRO */}
           {transactionType === 'COMPRA' && purchaseCpm > 0 && (
             <Card className="bg-muted/30"><CardContent className="pt-4"><div className="flex justify-between items-center"><span className="text-sm text-muted-foreground">CPM desta compra:</span><Badge variant="secondary" className="text-lg">{formatCPM(purchaseCpm)}</Badge></div></CardContent></Card>
           )}
@@ -401,13 +401,28 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
             )}
           </div>
 
-          {/* ... Seletores de Fornecedor/Cliente (Corrigido para Passageiro) ... */}
+          {/* SELETORES DE FORNECEDOR/CLIENTE (PASSAGEIRO) */}
           {transactionType === 'COMPRA' && (
             <div className="space-y-2"><Label>Fornecedor</Label><Select value={supplierId} onValueChange={setSupplierId}><SelectTrigger><SelectValue placeholder="Selecione (opcional)" /></SelectTrigger><SelectContent>{suppliers?.map(sup => (<SelectItem key={sup.id} value={sup.id}>{sup.name}</SelectItem>))}</SelectContent></Select></div>
           )}
           {transactionType === 'VENDA' && (
-                // Aqui o seletor usa os dados de passageiros
-            <div className="space-y-2"><Label>Passageiro *</Label><Select value={clientId} onValueChange={setClientId}><SelectTrigger><SelectValue placeholder="Selecione (obrigatório para CPF/Limite)" /></SelectTrigger><SelectContent>{passageiros?.map(pass => (<SelectItem key={pass.id} value={pass.id}>{pass.nome}</SelectItem>))}</SelectContent></Select>{cpfAlert && (<div className={`text-xs p-2 rounded border mt-2 flex items-center gap-2 ${cpfAlert.type === 'error' ? 'bg-destructive/10 text-destructive border-destructive/20' : cpfAlert.type === 'success' ? 'bg-success/10 text-success border-success/20' : 'bg-warning/10 text-warning border-warning/20'}`}>{cpfAlert.type === 'error' && <AlertTriangle className="h-3 w-3" />}{cpfAlert.type === 'success' && <TrendingUp className="h-3 w-3" />}{cpfAlert.msg}</div>)}</div>
+                // CORREÇÃO AQUI: Troquei {pass.nome} por {pass.name}
+            <div className="space-y-2">
+                <Label>Passageiro *</Label>
+                <Select value={clientId} onValueChange={setClientId}>
+                    <SelectTrigger>
+                        <SelectValue placeholder="Selecione (obrigatório para CPF/Limite)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {passageiros?.map(pass => (
+                            <SelectItem key={pass.id} value={pass.id}>
+                                {pass.name} {/* <--- CORRIGIDO */}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+                {cpfAlert && (<div className={`text-xs p-2 rounded border mt-2 flex items-center gap-2 ${cpfAlert.type === 'error' ? 'bg-destructive/10 text-destructive border-destructive/20' : cpfAlert.type === 'success' ? 'bg-success/10 text-success border-success/20' : 'bg-warning/10 text-warning border-warning/20'}`}>{cpfAlert.type === 'error' && <AlertTriangle className="h-3 w-3" />}{cpfAlert.type === 'success' && <TrendingUp className="h-3 w-3" />}{cpfAlert.msg}</div>)}
+            </div>
           )}
 
           <Separator />
@@ -444,7 +459,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
                   </div>
                 </div>
               ) : (
-                // INPUT MANUAL PARA QUANDO NÃO É CARTÃO
+                {/* INPUT MANUAL PARA QUANDO NÃO É CARTÃO */}
                 <div className="space-y-4 p-4 border rounded-lg bg-muted/10">
                    <div className="space-y-2">
                       <Label className="flex items-center justify-between">
@@ -494,7 +509,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
             </div>
           )}
 
-          {/* ... Vendas Parceladas (Sem alterações, pois é recebimento) ... */}
+          {/* VENDAS PARCELADAS (RECEBIMENTO) */}
           {transactionType === 'VENDA' && (
             <div className="space-y-4"><div className="flex items-center justify-between"><Label className="flex items-center gap-2"><Calendar className="h-4 w-4" />Recebimento Parcelado?</Label><Switch checked={useInstallments} onCheckedChange={setUseInstallments} /></div>{useInstallments && (<div className="space-y-4 p-4 border rounded-lg bg-muted/20"><div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Parcelas</Label><Select value={saleInstallments} onValueChange={setSaleInstallments}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Array.from({ length: 12 }, (_, i) => i + 1).map(n => (<SelectItem key={n} value={n.toString()}>{n}x de {formatCurrency(calculatedTotal / n)}</SelectItem>))}</SelectContent></Select></div><div className="space-y-2"><Label>Data do 1º Recebimento</Label><Input type="date" value={firstReceiveDate} onChange={e => setFirstReceiveDate(e.target.value)} /></div></div></div>)}</div>
           )}
