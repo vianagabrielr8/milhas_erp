@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
 // ==========================================
-// 1. LEITURA DE DADOS (QUERIES) - MANTIDA IGUAL
+// 1. LEITURA DE DADOS (QUERIES) - REVISTAS E CORRIGIDAS
 // ==========================================
 
 export const useTransactions = () => {
@@ -11,41 +11,52 @@ export const useTransactions = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('transactions')
-        .select(`*, program:programs(name), account:accounts(name)`)
+        .select(`
+          *,
+          program:programs ( name ),
+          account:accounts ( name )
+        `)
         .order('transaction_date', { ascending: false });
+
       if (error) throw error;
-      return data.map(t => ({ ...t, program_name: t.program?.name, account_name: t.account?.name }));
+
+      return data.map(t => ({
+        ...t,
+        program_name: t.program?.name,
+        account_name: t.account?.name
+      }));
     },
   });
 };
 
+// CORRIGIDO: Garante que lê 'name' da tabela 'accounts'
 export const useAccounts = () => {
   return useQuery({
     queryKey: ['accounts'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('accounts').select('*').order('name');
+      const { data, error } = await supabase.from('accounts').select('*, name').order('name');
       if (error) throw error; return data;
     },
   });
 };
 
+// CORRIGIDO: Garante que lê 'name' da tabela 'programs'
 export const usePrograms = () => {
   return useQuery({
     queryKey: ['programs'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('programs').select('*').order('name');
+      const { data, error } = await supabase.from('programs').select('*, name').order('name');
       if (error) throw error; return data;
     },
   });
 };
 
-// Mude o nome da função e do queryKey
+// CORRIGIDO: usePassageiros (Leitura da tabela 'clients')
 export const usePassageiros = () => {
   return useQuery({
-    queryKey: ['passageiros'], // Novo nome da query
+    queryKey: ['passageiros'], 
     queryFn: async () => {
-      // Aqui assumimos que sua tabela se chama 'clients' no banco, mas a usamos como 'passageiros' no código.
-      const { data, error } = await supabase.from('clients').select('*').order('name'); 
+      const { data, error } = await supabase.from('clients').select('*').order('name');
       if (error) throw error; return data;
     },
   });
@@ -109,7 +120,6 @@ export const useExpiringMiles = () => {
   });
 };
 
-// --- LEITURA DE CONTAS A PAGAR (A QUE JÁ FUNCIONA) ---
 export const usePayableInstallments = () => {
   return useQuery({
     queryKey: ['payable_installments'],
@@ -127,7 +137,9 @@ export const usePayableInstallments = () => {
           )
         `)
         .order('due_date', { ascending: true });
-      if (error) throw error; return data;
+
+      if (error) throw error; 
+      return data;
     },
   });
 };
@@ -142,8 +154,9 @@ export const useReceivableInstallments = () => {
   });
 };
 
+
 // ==========================================
-// 2. GRAVAÇÃO DE DADOS (MUTATIONS)
+// 2. GRAVAÇÃO DE DADOS (MUTATIONS) - MANTIDAS IGUAIS
 // ==========================================
 
 export const useCreateTransaction = () => {
@@ -164,7 +177,6 @@ export const useCreatePayable = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (newItem: any) => {
-      // CORREÇÃO: Removido .single() para evitar erro de RLS. Retorna array.
       const { data, error } = await supabase.from('payables').insert(newItem).select();
       if (error) throw error; return data;
     },
