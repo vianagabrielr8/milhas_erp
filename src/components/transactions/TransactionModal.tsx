@@ -3,7 +3,6 @@ import { useData } from '@/contexts/DataContext';
 import { useState, useEffect, useMemo } from 'react';
 import { format, addDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-// REMOVIDO: import { useQueryClient } from '@tanstack/react-query'; // NÃO É MAIS NECESSÁRIO
 import {
   Dialog,
   DialogContent,
@@ -511,12 +510,11 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
                           <span className="text-muted-foreground">{inst.installmentNumber}ª parcela - {format(inst.dueDate, 'dd/MM/yyyy', { locale: ptBR })}</span>
                           <span className="font-medium">{formatCurrency(inst.amount)}</span>
                         </div>
+                      ))}
                     </div>
                   </CardContent>
                 </Card>
               )}
-            </div>
-          )}
 
           {/* VENDAS PARCELADAS (RECEBIMENTO) */}
           {transactionType === 'VENDA' && (
