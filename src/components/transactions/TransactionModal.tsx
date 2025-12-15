@@ -83,7 +83,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
   const [pricePerThousand, setPricePerThousand] = useState(''); 
   const [transactionDate, setTransactionDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [expirationDate, setExpirationDate] = useState('');
-  const [notes, setNotes] = useState('');
+  [notes, setNotes] = useState('');
   
   // Purchase specific
   const [useCreditCard, setUseCreditCard] = useState(false);
@@ -323,7 +323,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
           </DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-6" id="transaction-form"> 
           {/* CAMPOS DE CONTA E PROGRAMA - Mapeamento com ID como String */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -526,15 +526,18 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
                 <Input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Observações (opcional)" />
             </div>
 
-          <div className="flex justify-end gap-2 pt-4">
-                <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
-                    Cancelar
-                </Button>
-                <Button type="submit" disabled={isSubmitting}>
-                    {isSubmitting ? 'Salvando...' : 'Registrar Transação'}
-                </Button>
-            </div>
-        </form>
+        </form> {/* FECHAMENTO DO FORM */}
+        
+        {/* BOTÕES AGORA VÃO FORA DO FORMULÁRIO */}
+        <div className="flex justify-end gap-2 pt-4 border-t pt-3">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
+                Cancelar
+            </Button>
+            {/* O atributo form="transaction-form" SUBMETE o formulário pelo botão externo */}
+            <Button type="submit" form="transaction-form" disabled={isSubmitting}> 
+                {isSubmitting ? 'Salvando...' : 'Registrar Transação'}
+            </Button>
+        </div>
       </DialogContent>
     </Dialog>
   );
