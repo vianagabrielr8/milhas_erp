@@ -526,7 +526,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
                 <Input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Observações (opcional)" />
             </div>
 
-        </form> {/* FECHAMENTO DO FORM */}
+        </form>
         
         {/* BOTÕES AGORA VÃO FORA DO FORMULÁRIO */}
         <div className="flex justify-end gap-2 pt-4 border-t pt-3">
@@ -541,4 +541,4 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
       </DialogContent>
     </Dialog>
   );
-      }
+}
