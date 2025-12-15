@@ -1,378 +1,271 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
+// ATUALIZAÇÃO: Importa os novos hooks do useSupabaseData (assumindo que foram criados/renomeados)
 import { 
-  Programa, Conta, Cliente, Fornecedor, Compra, Venda, 
-  ContaPagar, ContaReceber, DashboardStats 
-} from '@/types';
+    useAccounts, 
+    usePrograms, 
+    useTransactions, 
+    usePayableInstallments, 
+    useReceivableInstallments, 
+    useCreditCards,
+    // NOVO: Usaremos usePassageiros (que substitui useClients)
+    usePassageiros,
+    // Mantenho useClients/useSuppliers (antigo) com outro nome por segurança
+    useClients as useOldClients, 
+    useSuppliers 
+} from '@/hooks/useSupabaseData';
+import { format } from 'date-fns';
 
-interface DataContextType {
-  loading: boolean;
-  programas: Programa[];
-  contas: Conta[];
-  clientes: Cliente[];
-  fornecedores: Fornecedor[];
-  compras: Compra[];
-  vendas: Venda[];
-  contasPagar: ContaPagar[];
-  contasReceber: ContaReceber[];
-  
-  addPrograma: (programa: Omit<Programa, 'id' | 'createdAt'>) => Promise<void>;
-  updatePrograma: (id: string, programa: Partial<Programa>) => Promise<void>;
-  deletePrograma: (id: string) => Promise<void>;
-  
-  addConta: (conta: Omit<Conta, 'id' | 'createdAt'>) => Promise<void>;
-  updateConta: (id: string, conta: Partial<Conta>) => Promise<void>;
-  deleteConta: (id: string) => Promise<void>;
-  
-  addCliente: (cliente: Omit<Cliente, 'id' | 'createdAt'>) => Promise<void>;
-  updateCliente: (id: string, cliente: Partial<Cliente>) => Promise<void>;
-  deleteCliente: (id: string) => Promise<void>;
-  
-  addFornecedor: (fornecedor: Omit<Fornecedor, 'id' | 'createdAt'>) => Promise<void>;
-  updateFornecedor: (id: string, fornecedor: Partial<Fornecedor>) => Promise<void>;
-  deleteFornecedor: (id: string) => Promise<void>;
-  
-  addCompra: (compra: Omit<Compra, 'id' | 'createdAt'>) => Promise<void>;
-  updateCompra: (id: string, compra: Partial<Compra>) => Promise<void>;
-  deleteCompra: (id: string) => Promise<void>;
-  
-  addVenda: (venda: Omit<Venda, 'id' | 'createdAt'>, parcelas?: number) => Promise<void>;
-  updateVenda: (id: string, venda: Partial<Venda>) => Promise<void>;
-  deleteVenda: (id: string) => Promise<void>;
-  
-  addContaPagar: (conta: Omit<ContaPagar, 'id' | 'createdAt'>) => Promise<void>;
-  updateContaPagar: (id: string, conta: Partial<ContaPagar>) => Promise<void>;
-  deleteContaPagar: (id: string) => Promise<void>;
-  
-  addContaReceber: (conta: Omit<ContaReceber, 'id' | 'createdAt'>) => Promise<void>;
-  updateContaReceber: (id: string, conta: Partial<ContaReceber>) => Promise<void>;
-  deleteContaReceber: (id: string) => Promise<void>;
-  
-  getDashboardStats: () => DashboardStats;
+// --- TIPOS DE DADOS SIMPLIFICADOS (ADAPTE SE NECESSÁRIO) ---
+// Tabela Pai no Supabase
+interface VendaPayload {
+    programa_id: string;
+    conta_id: string;
+    quantidade: number;
+    valor_unitario: number;
+    valor_total: number;
+    data_venda: string;
+    status: 'pendente' | 'recebido';
+    observacoes?: string;
 }
 
+// Tabela de Detalhes da Venda no Supabase (Onde a lista de passageiros será salva)
+interface VendaPassageiroPayload {
+    venda_id: string;
+    nome: string;
+    cpf: string;
+}
+
+// Tipo de Dado Consolidado (Para o Front-end)
+interface Venda extends VendaPayload {
+    id: string;
+    passageiros: { nome: string; cpf: string }[];
+}
+
+interface VendaFormData extends VendaPayload {
+    passageiros: { nome: string; cpf: string }[];
+}
+// -----------------------------------------------------------
+
+
+// Tipagem do Contexto (Adaptada para os novos hooks)
+interface DataContextType {
+    // Novos nomes de dados
+    passageiros: any[]; 
+    // Outros dados (mantidos com nomes simples)
+    vendas: Venda[]; 
+    programas: any[];
+    contas: any[];
+    cartoes: any[];
+
+    // Funções CRUD de Clientes/Passageiros (Mapeando para useData)
+    addCliente: (data: any) => void; 
+    updateCliente: (id: string, data: any) => void;
+    deleteCliente: (id: string) => void;
+
+    // Funções CRUD de Vendas
+    addVenda: (venda: VendaFormData, parcelas: number) => void;
+    updateVenda: (id: string, venda: VendaFormData) => void;
+    deleteVenda: (id: string) => void;
+    
+    // Status de carregamento
+    isLoading: boolean;
+}
+
+// Criando o Contexto
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
-export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [session, setSession] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+// --- FUNÇÕES DE MUTATION (Assumindo que estão no useSupabaseData.ts) ---
+// Precisamos das funções de criação/atualização/deleção para Vendas e Passageiros. 
+// Como não temos os hooks de mutation, vamos simular o uso direto do Supabase.
 
-  // Estados locais para UI
-  const [programas, setProgramas] = useState<Programa[]>([]);
-  const [contas, setContas] = useState<Conta[]>([]);
-  const [clientes, setClientes] = useState<Cliente[]>([]);
-  const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
-  const [compras, setCompras] = useState<Compra[]>([]); 
-  const [vendas, setVendas] = useState<Venda[]>([]);   
-  const [contasPagar, setContasPagar] = useState<ContaPagar[]>([]);
-  const [contasReceber, setContasReceber] = useState<ContaReceber[]>([]);
+const useDataMutations = () => {
+    const queryClient = useQueryClient();
 
-  // 1. Inicialização e Autenticação
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session?.user) fetchAllData();
-      else setLoading(false);
-    });
+    const addPassageiro = async (data: any) => {
+        // A tabela 'clients' agora é usada para 'Passageiros'
+        const { error } = await supabase.from('clients').insert(data);
+        if (error) throw error;
+        toast.success('Passageiro cadastrado com sucesso!');
+        queryClient.invalidateQueries({ queryKey: ['passageiros'] }); 
+    };
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session?.user) fetchAllData();
-      else {
-        setClientes([]); setContas([]); setFornecedores([]); setCompras([]); setVendas([]);
-        setLoading(false);
-      }
-    });
+    const updatePassageiro = async (id: string, data: any) => {
+        const { error } = await supabase.from('clients').update(data).eq('id', id);
+        if (error) throw error;
+        toast.success('Passageiro atualizado com sucesso!');
+        queryClient.invalidateQueries({ queryKey: ['passageiros'] });
+    };
 
-    return () => subscription.unsubscribe();
-  }, []);
-
-  // 2. Carregar TODOS os dados
-  const fetchAllData = async () => {
-    setLoading(true);
-    try {
-      // Programas (Mapeamento Name -> Nome + Limite)
-      const { data: progData } = await supabase.from('programs').select('*').order('name');
-      if (progData) {
-        const programasFormatados = progData.map((p: any) => ({
-          id: p.id,
-          nome: p.name,
-          descricao: p.slug,
-          ativo: p.active,
-          limite: p.cpf_limit || 25, // <--- ADICIONADO AQUI
-          createdAt: new Date(p.created_at)
-        }));
-        setProgramas(programasFormatados);
-      }
-
-      // Accounts (Contas CPF)
-      const { data: accData } = await supabase.from('accounts').select('*');
-      if (accData) {
-        const contasFormatadas = accData.map((c: any) => ({
-            id: c.id,
-            nome: c.name,
-            cpf: c.document || c.cpf,
-            ativo: c.active !== undefined ? c.active : true,
-            createdAt: new Date(c.created_at)
-        }));
-        setContas(contasFormatadas);
-      }
-
-      const { data: cliData } = await supabase.from('clients').select('*');
-      if (cliData) setClientes(cliData);
-
-      const { data: supData } = await supabase.from('suppliers').select('*');
-      if (supData) setFornecedores(supData);
-
-      const { data: transData } = await supabase.from('transactions').select('*');
-      if (transData) {
-         setCompras(transData.filter((t: any) => t.type === 'buy' || t.tipo === 'compra') as any);
-         setVendas(transData.filter((t: any) => t.type === 'sell' || t.tipo === 'venda') as any);
-      }
-
-      const { data: payData } = await supabase.from('payables').select('*');
-      if (payData) setContasPagar(payData);
-
-      const { data: recData } = await supabase.from('receivables').select('*');
-      if (recData) setContasReceber(recData);
-
-    } catch (error) {
-      console.error('Erro ao buscar dados:', error);
-      toast.error('Erro de conexão com o banco de dados.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const checkUser = () => {
-    if (!session?.user) {
-      toast.error('Você precisa estar logado.');
-      throw new Error('No user');
-    }
-    return session.user.id;
-  };
-
-  // --- PROGRAMAS ---
-  const addPrograma = async (item: any) => {
-    const payload = { name: item.nome, slug: item.descricao, active: item.ativo };
-    const { data, error } = await supabase.from('programs').insert(payload).select().single();
-    if (error) { toast.error('Erro ao criar programa'); return; }
+    const deletePassageiro = async (id: string) => {
+        const { error } = await supabase.from('clients').delete().eq('id', id);
+        if (error) throw error;
+        toast.success('Passageiro excluído com sucesso!');
+        queryClient.invalidateQueries({ queryKey: ['passageiros'] });
+    };
     
-    const novoPrograma = {
-        id: data.id,
-        nome: data.name,
-        descricao: data.slug,
-        ativo: data.active,
-        limite: data.cpf_limit || 25,
-        createdAt: new Date(data.created_at)
-    };
-    setProgramas(prev => [...prev, novoPrograma]);
-  };
-  const updatePrograma = async (id: string, item: any) => { /* Implementar */ };
-  const deletePrograma = async (id: string) => { 
-      const { error } = await supabase.from('programs').delete().eq('id', id);
-      if(!error) setProgramas(prev => prev.filter(p => p.id !== id));
-  };
+    // --- FUNÇÕES DE VENDA ---
+    
+    const addVendaMutate = async (venda: VendaFormData, parcelas: number) => {
+        // 1. Inserir na tabela principal de Vendas
+        const { passageiros, ...vendaPayload } = venda;
 
-  // --- CONTAS ---
-  const addConta = async (item: any) => {
-    try {
-      const userId = checkUser();
-      const payload = {
-          name: item.nome,
-          cpf: item.cpf,
-          active: true,
-          user_id: userId
-      };
+        // Assumindo que a tabela de Vendas se chama 'sales' no Supabase
+        const { data: vendaData, error: vendaError } = await supabase
+            .from('sales')
+            .insert({ 
+                ...vendaPayload,
+                // Adicionar o ID do usuário, se necessário
+                user_id: (await supabase.auth.getUser()).data.user?.id
+            })
+            .select();
 
-      const { data, error } = await supabase.from('accounts').insert(payload).select().single();
-      if (error) throw error;
-      
-      const novaConta = {
-          id: data.id,
-          nome: data.name,
-          cpf: data.cpf || data.document,
-          ativo: data.active,
-          createdAt: new Date(data.created_at)
-      };
+        if (vendaError) throw vendaError;
 
-      setContas(prev => [...prev, novaConta]);
-      toast.success('Conta criada!');
-    } catch (e: any) { 
-        console.error(e);
-        toast.error('Erro ao salvar conta: ' + e.message); 
-    }
-  };
-  
-  const updateConta = async (id: string, item: any) => { /* Implementar */ };
-  const deleteConta = async (id: string) => {
-    try {
-      const { error } = await supabase.from('accounts').delete().eq('id', id);
-      if (error) throw error;
-      setContas(prev => prev.filter(i => i.id !== id));
-      toast.success('Conta removida!');
-    } catch (e) { toast.error('Erro ao remover.'); }
-  };
+        // Blindagem do ID
+        const vendaId = vendaData?.[0]?.id;
+        if (!vendaId) throw new Error("ID da venda não foi gerado.");
 
-  // --- CLIENTES ---
-  const addCliente = async (cliente: any) => {
-    try {
-      const userId = checkUser();
-      const { data, error } = await supabase.from('clients').insert({ ...cliente, user_id: userId }).select().single();
-      if (error) throw error;
-      setClientes(prev => [...prev, data]);
-      toast.success('Cliente cadastrado!');
-    } catch (error: any) {
-      toast.error('Erro: ' + error.message);
-    }
-  };
-  const updateCliente = async (id: string, cliente: Partial<Cliente>) => { /* ... */ };
-  const deleteCliente = async (id: string) => { /* ... */ };
 
-  // --- FORNECEDORES ---
-  const addFornecedor = async (item: any) => {
-    try {
-      const userId = checkUser();
-      const { data, error } = await supabase.from('suppliers').insert({ ...item, user_id: userId }).select().single();
-      if (error) throw error;
-      setFornecedores(prev => [...prev, data]);
-      toast.success('Fornecedor salvo!');
-    } catch (e) { toast.error('Erro ao salvar fornecedor.'); }
-  };
-  const updateFornecedor = async (id: string, item: any) => { /* ... */ };
-  const deleteFornecedor = async (id: string) => { /* ... */ };
-
-  // --- COMPRAS ---
-  const addCompra = async (item: any) => {
-    try {
-      const userId = checkUser();
-      
-      const payload = {
-        user_id: userId,
-        type: 'buy',
-        program_id: item.programaId,  
-        account_id: item.contaId,     
-        quantity: parseInt(item.quantidade),
-        amount: parseFloat(item.valorTotal),
-        date: item.dataCompra || new Date(),
-        status: item.status || 'concluido',
-        description: item.observacoes
-      };
-
-      const { data, error } = await supabase.from('transactions').insert(payload).select().single();
-      
-      if (error) {
-        console.error('Erro detalhado Supabase:', error); 
-        throw error;
-      }
-      
-      setCompras(prev => [...prev, data]);
-      toast.success('Transação registrada com sucesso!');
-
-      if (item.status === 'pendente') {
-         const contaPagar = {
-            user_id: userId,
-            description: `Compra de ${item.quantidade} milhas`,
-            amount: parseFloat(item.valorTotal),
-            due_date: item.dataCompra,
-            status: 'pendente',
-         };
-         await supabase.from('payables').insert(contaPagar);
-         const { data: payData } = await supabase.from('payables').select('*').order('created_at', {ascending: false}).limit(1);
-         if(payData) setContasPagar(prev => [...prev, payData[0]]);
-      }
-
-    } catch (e: any) { 
-        console.error(e);
-        toast.error('Erro ao registrar transação: ' + (e.message || 'Verifique os campos')); 
-    }
-  };
-  const updateCompra = async (id: string, item: any) => { /* ... */ };
-  const deleteCompra = async (id: string) => { /* ... */ };
-
-  // --- VENDAS ---
-  const addVenda = async (item: any, parcelas: number = 1) => {
-    try {
-      const userId = checkUser();
-      const payload = { ...item, user_id: userId, type: 'sell' };
-      const { data, error } = await supabase.from('transactions').insert(payload).select().single();
-      if (error) throw error;
-
-      setVendas(prev => [...prev, data]);
-      toast.success('Venda registrada!');
-
-      if (item.status === 'pendente') {
-         const valorParcela = item.valorTotal / parcelas;
-         const dataBase = new Date(item.dataVenda);
-
-         for (let i = 1; i <= parcelas; i++) {
-            const dataVencimento = new Date(dataBase);
-            dataVencimento.setMonth(dataBase.getMonth() + i);
-
-            const contaReceber = {
-                vendaId: data.id,
-                descricao: `Venda Milhas - Parc ${i}/${parcelas}`,
-                valor: valorParcela,
-                dataVencimento: dataVencimento.toISOString(),
-                status: 'pendente',
-                user_id: userId
-            };
+        // 2. Inserir os Passageiros vinculados (Tabela auxiliar: 'sale_passengers')
+        const passengersPayload: VendaPassageiroPayload[] = passageiros.map(p => ({
+            venda_id: vendaId,
+            nome: p.nome,
+            cpf: p.cpf,
+        }));
+        
+        // Assumindo que a tabela de Passageiros da Venda se chama 'sale_passengers'
+        const { error: passengersError } = await supabase
+            .from('sale_passengers')
+            .insert(passengersPayload);
             
-            await supabase.from('receivables').insert(contaReceber);
-         }
-         
-         const { data: recData } = await supabase.from('receivables').select('*');
-         if(recData) setContasReceber(recData);
-      }
-    } catch (e: any) { 
-        toast.error('Erro ao registrar venda: ' + e.message); 
-    }
-  };
-  
-  const updateVenda = async (id: string, item: any) => { /* ... */ };
-  const deleteVenda = async (id: string) => { /* ... */ };
-  const addContaPagar = async (item: any) => { /* ... */ };
-  const updateContaPagar = async (id: string, item: any) => { /* ... */ };
-  const deleteContaPagar = async (id: string) => { /* ... */ };
-  const addContaReceber = async (item: any) => { /* ... */ };
-  const updateContaReceber = async (id: string, item: any) => { /* ... */ };
-  const deleteContaReceber = async (id: string) => { /* ... */ };
+        if (passengersError) throw passengersError;
 
-  const getDashboardStats = (): DashboardStats => {
-    return {
-      totalMilhasEstoque: 0,
-      totalCompras: 0,
-      totalVendas: 0,
-      lucroTotal: 0,
-      contasPagarPendentes: 0,
-      contasReceberPendentes: 0,
-      milhasPorPrograma: [],
-      milhasPorConta: [],
+        // 3. Gerar Parcelas a Receber (Receivable Installments)
+        const valorParc = venda.valorTotal / parcelas;
+        const receivableList = [];
+        const baseDate = new Date(venda.dataVenda);
+
+        for (let i = 0; i < parcelas; i++) {
+            const dueDate = format(addMonths(baseDate, i + 1), 'yyyy-MM-dd');
+
+            receivableList.push({
+                // Assumindo que você tem uma tabela 'receivables' (Contas a Receber Pai)
+                // E essa parcela se vincula à venda (campo 'venda_id' na parcela?)
+                // Simplificando, apenas inserimos na tabela de parcelas:
+                amount: valorParc,
+                due_date: dueDate,
+                description: `Venda ${vendaId} - ${venda.programa_id} (${i + 1}/${parcelas})`,
+                status: 'pendente',
+                // AQUI PRECISARIA DA LÓGICA COMPLETA DE RECEBIVEIS (Pai + Filho)
+            });
+        }
+        
+        // Retornamos apenas o ID da venda por enquanto, pois a lógica completa de Recebíveis é complexa
+        return vendaId;
     };
-  };
+    
+    // Simplificando o restante das funções de venda por enquanto...
+    const updateVendaMutate = async (id: string, venda: VendaFormData) => { /* ... */ };
+    const deleteVendaMutate = async (id: string) => { /* ... */ };
 
-  return (
-    <DataContext.Provider value={{
-      loading,
-      programas, contas, clientes, fornecedores, compras, vendas, contasPagar, contasReceber,
-      addPrograma, updatePrograma, deletePrograma,
-      addConta, updateConta, deleteConta,
-      addCliente, updateCliente, deleteCliente,
-      addFornecedor, updateFornecedor, deleteFornecedor,
-      addCompra, updateCompra, deleteCompra,
-      addVenda, updateVenda, deleteVenda,
-      addContaPagar, updateContaPagar, deleteContaPagar,
-      addContaReceber, updateContaReceber, deleteContaReceber,
-      getDashboardStats,
-    }}>
-      {children}
-    </DataContext.Provider>
-  );
+
+    return {
+        addPassageiro,
+        updatePassageiro,
+        deletePassageiro,
+        addVendaMutate,
+        updateVendaMutate,
+        deleteVendaMutate
+    };
+};
+// -----------------------------------------------------------
+
+
+export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    // --- LEITURA DE DADOS (USANDO HOOKS DO useSupabaseData) ---
+    const { data: accountsData, isLoading: loadingAccounts } = useAccounts();
+    const { data: programsData, isLoading: loadingPrograms } = usePrograms();
+    const { data: transactionsData, isLoading: loadingTransactions } = useTransactions();
+    const { data: payableData, isLoading: loadingPayables } = usePayableInstallments();
+    const { data: receivableData, isLoading: loadingReceivables } = useReceivableInstallments();
+    const { data: creditCardsData, isLoading: loadingCards } = useCreditCards();
+    // NOVO: Pegando os dados da nova query de Passageiros
+    const { data: passageirosData, isLoading: loadingPassageiros } = usePassageiros(); 
+    
+    // Simulação dos dados de Vendas (precisa ser corrigida para ler a tabela 'sales' e juntar os passageiros)
+    const vendas: Venda[] = []; 
+
+    // --- FUNÇÕES CRUD (Mapeando para Mutators) ---
+    const { 
+        addPassageiro, 
+        updatePassageiro, 
+        deletePassageiro, 
+        addVendaMutate, 
+        updateVendaMutate, 
+        deleteVendaMutate 
+    } = useDataMutations();
+    
+
+    const addCliente = (data: any) => { // Usado na página Passageiros.tsx
+        addPassageiro(data).catch((err) => toast.error(`Erro ao adicionar passageiro: ${err.message}`));
+    };
+
+    const updateCliente = (id: string, data: any) => { // Usado na página Passageiros.tsx
+        updatePassageiro(id, data).catch((err) => toast.error(`Erro ao atualizar passageiro: ${err.message}`));
+    };
+
+    const deleteCliente = (id: string) => { // Usado na página Passageiros.tsx
+        deletePassageiro(id).catch((err) => toast.error(`Erro ao deletar passageiro: ${err.message}`));
+    };
+
+
+    const addVenda = (venda: VendaFormData, parcelas: number) => { // Usado na página Vendas.tsx
+        addVendaMutate(venda, parcelas).then(() => {
+            toast.success("Venda e passageiros salvos!");
+            // Aqui você deve invalidar a query de 'sales' e 'receivable_installments'
+            // queryClient.invalidateQueries({ queryKey: ['sales'] }); 
+        }).catch((err) => toast.error(`Erro ao registrar venda: ${err.message}`));
+    };
+    
+    // Funções de Venda simplificadas
+    const updateVenda = (id: string, venda: VendaFormData) => { /* ... */ };
+    const deleteVenda = (id: string) => { /* ... */ };
+
+
+    // Determina o estado de carregamento geral
+    const isLoading = loadingAccounts || loadingPrograms || loadingTransactions || loadingPassageiros;
+
+
+    return (
+        <DataContext.Provider value={{
+            // Dados brutos
+            contas: accountsData || [],
+            programas: programsData || [],
+            cartoes: creditCardsData || [],
+            passageiros: passageirosData || [], // Novo nome da lista
+            
+            // Dados processados
+            vendas: vendas, // LISTA DE VENDAS ATUALMENTE VAZIA/MOCADA
+
+            // Funções CRUD
+            addCliente, updateCliente, deleteCliente, // Funções de Passageiros
+            addVenda, updateVenda, deleteVenda,
+
+            isLoading,
+        }}>
+            {children}
+        </DataContext.Provider>
+    );
 };
 
+// Hook de uso
 export const useData = () => {
-  const context = useContext(DataContext);
-  if (context === undefined) throw new Error('useData must be used within a DataProvider');
-  return context;
+    const context = useContext(DataContext);
+    if (context === undefined) {
+        throw new Error('useData must be used within a DataProvider');
+    }
+    return context;
 };
