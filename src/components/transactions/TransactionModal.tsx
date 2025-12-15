@@ -99,7 +99,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
   const [firstReceiveDate, setFirstReceiveDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [clientId, setClientId] = useState(''); // Mantemos 'clientId' no estado, mas ele se refere a 'passageiroId'
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  [isSubmitting, setIsSubmitting] = useState(false);
 
   // Cálculo automático do Total
   const calculatedTotal = useMemo(() => {
