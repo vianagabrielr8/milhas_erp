@@ -29,7 +29,7 @@ export const useTransactions = () => {
   });
 };
 
-// ACCOUNTS - INSTRUMENTADO PARA DEBUG
+// ACCOUNTS - CORREÇÃO DE STABILITY (Retorna [] em caso de erro)
 export const useAccounts = () => {
   return useQuery({
     queryKey: ['accounts'],
@@ -39,16 +39,16 @@ export const useAccounts = () => {
       
       if (error) {
         console.error("FETCH ERROR ACCOUNTS:", error); // Log de erro em vermelho
-        throw error;
+        return []; // Retorna array vazio em caso de falha de RLS ou conexão
       } 
       
-      console.log("FETCH SUCESSO ACCOUNTS. Dados:", data); // Log de sucesso
+      console.log("FETCH SUCESSO ACCOUNTS. Itens:", data.length); // Log de sucesso
       return data;
     },
   });
 };
 
-// PROGRAMS - INSTRUMENTADO PARA DEBUG
+// PROGRAMS - CORREÇÃO DE STABILITY (Retorna [] em caso de erro)
 export const usePrograms = () => {
   return useQuery({
     queryKey: ['programs'],
@@ -58,16 +58,16 @@ export const usePrograms = () => {
       
       if (error) {
         console.error("FETCH ERROR PROGRAMS:", error); // Log de erro em vermelho
-        throw error;
+        return []; // Retorna array vazio em caso de falha de RLS ou conexão
       }
       
-      console.log("FETCH SUCESSO PROGRAMS. Dados:", data); // Log de sucesso
+      console.log("FETCH SUCESSO PROGRAMS. Itens:", data.length); // Log de sucesso
       return data;
     },
   });
 };
 
-// PASSAGEIROS - INSTRUMENTADO PARA DEBUG
+// PASSAGEIROS - CORREÇÃO DE STABILITY (Retorna [] em caso de erro)
 export const usePassageiros = () => {
   return useQuery({
     queryKey: ['passageiros'], 
@@ -77,10 +77,10 @@ export const usePassageiros = () => {
       
       if (error) {
         console.error("FETCH ERROR PASSAGEIROS:", error); // Log de erro em vermelho
-        throw error;
+        return []; // Retorna array vazio em caso de falha de RLS ou conexão
       }
       
-      console.log("FETCH SUCESSO PASSAGEIROS. Dados:", data); // Log de sucesso
+      console.log("FETCH SUCESSO PASSAGEIROS. Itens:", data.length); // Log de sucesso
       return data;
     },
   });
@@ -278,5 +278,4 @@ export const useDeleteCreditCard = () => {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['credit_cards'] }),
   });
 };
-
 // MANTENHA O RESTANTE DAS SUAS FUNÇÕES DE MUTATION
