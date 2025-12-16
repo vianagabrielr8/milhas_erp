@@ -38,19 +38,35 @@ export const usePrograms = () =>
 /* ======================================================
    CLIENTS / PASSAGEIROS
 ====================================================== */
-export const usePassageiros = () =>
-  useQuery({
+export const usePassageiros = () => {
+  return useQuery({
     queryKey: ['clients'],
     queryFn: async () => {
+      console.log('FETCH CLIENTS');
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.warn('CLIENTS: usuário não logado');
+        return [];
+      }
+
       const { data, error } = await supabase
         .from('clients')
         .select('id, name')
+        .eq('user_id', user.id) // 🔥 ESSENCIAL com RLS
         .order('name');
 
-      if (error) return [];
+      if (error) {
+        console.error('CLIENTS ERROR:', error);
+        return [];
+      }
+
+      console.log('CLIENTS DATA:', data);
       return data ?? [];
     },
   });
+};
+
 
 /* ======================================================
    CREDIT CARDS  🔥 (ERA O QUE FALTAVA)
