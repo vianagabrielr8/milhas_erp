@@ -1,17 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
-
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-
 import {
   Select,
   SelectContent,
@@ -19,7 +16,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -42,10 +38,9 @@ export function TransactionModal({ open, onOpenChange }: Props) {
 
   const createTransaction = useCreateTransaction();
 
-  const [accountId, setAccountId] = useState<string>();
-  const [programId, setProgramId] = useState<string>();
-  const [clientId, setClientId] = useState<string>();
-
+  const [programId, setProgramId] = useState('');
+  const [accountId, setAccountId] = useState('');
+  const [clientId, setClientId] = useState('');
   const [quantity, setQuantity] = useState('');
   const [price, setPrice] = useState('');
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -60,9 +55,9 @@ export function TransactionModal({ open, onOpenChange }: Props) {
 
   useEffect(() => {
     if (open) {
-      setAccountId(undefined);
-      setProgramId(undefined);
-      setClientId(undefined);
+      setProgramId('');
+      setAccountId('');
+      setClientId('');
       setQuantity('');
       setPrice('');
       setDate(format(new Date(), 'yyyy-MM-dd'));
@@ -76,18 +71,14 @@ export function TransactionModal({ open, onOpenChange }: Props) {
     }
 
     setLoading(true);
-
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
+      const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Usuário não autenticado');
 
       await createTransaction.mutateAsync({
         account_id: accountId,
         program_id: programId,
-        client_id: clientId ?? null,
+        client_id: clientId || null,
         quantity: Number(quantity),
         total_cost: total,
         transaction_date: date,
@@ -106,29 +97,23 @@ export function TransactionModal({ open, onOpenChange }: Props) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange} modal={false}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Nova Transação</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
-
           {/* CONTA */}
           <div>
             <Label>Conta</Label>
-            <Select
-              value={accountId}
-              onValueChange={setAccountId}
-              modal={false}
-            >
+            <Select value={accountId} onValueChange={setAccountId}>
               <SelectTrigger>
                 <SelectValue placeholder="Selecione a conta" />
               </SelectTrigger>
-
-              <SelectContent>
+              <SelectContent forceMount className="z-[9999]">
                 {accounts.map(acc => (
-                  <SelectItem key={acc.id} value={String(acc.id)}>
+                  <SelectItem key={acc.id} value={acc.id}>
                     {acc.name}
                   </SelectItem>
                 ))}
@@ -139,18 +124,13 @@ export function TransactionModal({ open, onOpenChange }: Props) {
           {/* PROGRAMA */}
           <div>
             <Label>Programa</Label>
-            <Select
-              value={programId}
-              onValueChange={setProgramId}
-              modal={false}
-            >
+            <Select value={programId} onValueChange={setProgramId}>
               <SelectTrigger>
                 <SelectValue placeholder="Selecione o programa" />
               </SelectTrigger>
-
-              <SelectContent>
+              <SelectContent forceMount className="z-[9999]">
                 {programs.map(p => (
-                  <SelectItem key={p.id} value={String(p.id)}>
+                  <SelectItem key={p.id} value={p.id}>
                     {p.name}
                   </SelectItem>
                 ))}
@@ -161,18 +141,13 @@ export function TransactionModal({ open, onOpenChange }: Props) {
           {/* PASSAGEIRO */}
           <div>
             <Label>Passageiro (opcional)</Label>
-            <Select
-              value={clientId}
-              onValueChange={setClientId}
-              modal={false}
-            >
+            <Select value={clientId} onValueChange={setClientId}>
               <SelectTrigger>
                 <SelectValue placeholder="Selecione o passageiro" />
               </SelectTrigger>
-
-              <SelectContent>
+              <SelectContent forceMount className="z-[9999]">
                 {passageiros.map(p => (
-                  <SelectItem key={p.id} value={String(p.id)}>
+                  <SelectItem key={p.id} value={p.id}>
                     {p.name}
                   </SelectItem>
                 ))}
@@ -180,34 +155,19 @@ export function TransactionModal({ open, onOpenChange }: Props) {
             </Select>
           </div>
 
-          {/* QUANTIDADE */}
           <div>
             <Label>Quantidade de milhas</Label>
-            <Input
-              type="number"
-              value={quantity}
-              onChange={e => setQuantity(e.target.value)}
-            />
+            <Input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} />
           </div>
 
-          {/* PREÇO */}
           <div>
             <Label>Preço por milheiro</Label>
-            <Input
-              type="number"
-              value={price}
-              onChange={e => setPrice(e.target.value)}
-            />
+            <Input type="number" value={price} onChange={e => setPrice(e.target.value)} />
           </div>
 
-          {/* DATA */}
           <div>
             <Label>Data</Label>
-            <Input
-              type="date"
-              value={date}
-              onChange={e => setDate(e.target.value)}
-            />
+            <Input type="date" value={date} onChange={e => setDate(e.target.value)} />
           </div>
 
           <div className="flex justify-end gap-2 pt-4">
