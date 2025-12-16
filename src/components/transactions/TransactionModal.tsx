@@ -61,14 +61,6 @@ interface TransactionModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
-// Para evitar o bug do JSX, mantemos o footer simples
-const DialogFooter = ({ children }: { children: React.ReactNode }) => (
-    <div className="flex justify-end gap-2 pt-4 border-t pt-3">
-        {children}
-    </div>
-);
-
-
 export function TransactionModal({ open, onOpenChange }: TransactionModalProps) {
   // OBTEM DADOS E ESTADO DE CARREGAMENTO
   const { vendas, programas, contas, passageiros, isLoading } = useData(); 
@@ -97,6 +89,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
   const [selectedCardId, setSelectedCardId] = useState('');
   const [installmentCount, setInstallmentCount] = useState('1');
   const [supplierId, setSupplierId] = useState('');
+  // Novo: Data de Vencimento Manual (para quando não é cartão)
   const [manualDueDate, setManualDueDate] = useState('');
   
   // Sale specific
@@ -106,10 +99,6 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
   const [clientId, setClientId] = useState(''); 
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Restante da lógica (cálculos, reset, submit) permanece a mesma...
-
-    // ... (omissão de código não relevante para o fluxo)
 
   // Cálculo automático do Total
   const calculatedTotal = useMemo(() => {
@@ -550,14 +539,14 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
 
         </form>
         
-        <DialogFooter>
+        <div className="flex justify-end gap-2 pt-4 border-t pt-3">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
                 Cancelar
             </Button>
             <Button type="submit" form="transaction-form" disabled={isSubmitting}> 
                 {isSubmitting ? 'Salvando...' : 'Registrar Transação'}
             </Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );
