@@ -30,7 +30,7 @@ export const useTransactions = () => {
   });
 };
 
-// ACCOUNTS (RLS OK)
+// ACCOUNTS
 export const useAccounts = () => {
   return useQuery({
     queryKey: ['accounts'],
@@ -45,17 +45,13 @@ export const useAccounts = () => {
         .eq('active', true)
         .order('name');
 
-      if (error) {
-        console.error('ACCOUNTS ERROR:', error);
-        return [];
-      }
-
+      if (error) return [];
       return data;
     },
   });
 };
 
-// PROGRAMS (RLS OK)
+// PROGRAMS
 export const usePrograms = () => {
   return useQuery({
     queryKey: ['programs'],
@@ -70,17 +66,13 @@ export const usePrograms = () => {
         .eq('active', true)
         .order('name');
 
-      if (error) {
-        console.error('PROGRAMS ERROR:', error);
-        return [];
-      }
-
+      if (error) return [];
       return data;
     },
   });
 };
 
-// PASSAGEIROS / CLIENTS (RLS OK)
+// PASSAGEIROS / CLIENTS
 export const usePassageiros = () => {
   return useQuery({
     queryKey: ['passageiros'],
@@ -95,11 +87,7 @@ export const usePassageiros = () => {
         .eq('active', true)
         .order('name');
 
-      if (error) {
-        console.error('PASSAGEIROS ERROR:', error);
-        return [];
-      }
-
+      if (error) return [];
       return data;
     },
   });
@@ -142,38 +130,18 @@ export const useMilesBalance = () => {
   return useQuery({
     queryKey: ['miles_balance'],
     queryFn: async () => {
-      const { data: balanceData, error: balanceError } = await supabase
+      const { data: balanceData, error } = await supabase
         .from('miles_balance')
         .select(`*, program:programs(name), account:accounts(name)`);
 
-      if (balanceError) throw balanceError;
+      if (error) throw error;
 
-      const { data: summaryData, error: summaryError } = await supabase
-        .from('program_balance_summary')
-        .select('*');
-
-      if (summaryError) throw summaryError;
-
-      return balanceData.map(balance => {
-        const summary = summaryData.find(
-          s =>
-            s.program_id === balance.program_id &&
-            s.account_id === balance.account_id
-        );
-
-        return {
-          ...balance,
-          program_name: balance.program?.name,
-          account_name: balance.account?.name,
-          avg_cpm: summary?.avg_cpm || 0,
-          total_invested: summary?.total_invested || 0,
-        };
-      });
+      return balanceData;
     },
   });
 };
 
-// EXPIRING MILES (🔥 FALTAVA — RESOLVE O BUILD)
+// EXPIRING MILES
 export const useExpiringMiles = () => {
   return useQuery({
     queryKey: ['expiring_miles'],
@@ -185,13 +153,41 @@ export const useExpiringMiles = () => {
         .from('expiring_miles')
         .select('*')
         .eq('user_id', user.id)
-        .order('expiration_date', { ascending: true });
+        .order('expiration_date');
 
-      if (error) {
-        console.error('EXPIRING MILES ERROR:', error);
-        return [];
-      }
+      if (error) return [];
+      return data;
+    },
+  });
+};
 
+// 🔥 PAYABLE INSTALLMENTS (FALTAVA)
+export const usePayableInstallments = () => {
+  return useQuery({
+    queryKey: ['payable_installments'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('payable_installments')
+        .select('*')
+        .order('due_date');
+
+      if (error) throw error;
+      return data;
+    },
+  });
+};
+
+// 🔥 RECEIVABLE INSTALLMENTS (FALTAVA)
+export const useReceivableInstallments = () => {
+  return useQuery({
+    queryKey: ['receivable_installments'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('receivable_installments')
+        .select('*')
+        .order('due_date');
+
+      if (error) throw error;
       return data;
     },
   });
@@ -205,10 +201,10 @@ export const useCreateTransaction = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (newItem: any) => {
+    mutationFn: async (item: any) => {
       const { data, error } = await supabase
         .from('transactions')
-        .insert(newItem)
+        .insert(item)
         .select()
         .single();
 
@@ -226,10 +222,10 @@ export const useCreatePayable = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (newItem: any) => {
+    mutationFn: async (item: any) => {
       const { data, error } = await supabase
         .from('payables')
-        .insert(newItem)
+        .insert(item)
         .select()
         .single();
 
@@ -245,10 +241,10 @@ export const useCreateReceivable = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (newItem: any) => {
+    mutationFn: async (item: any) => {
       const { data, error } = await supabase
         .from('receivables')
-        .insert(newItem)
+        .insert(item)
         .select()
         .single();
 
@@ -265,13 +261,11 @@ export const useCreatePayableInstallments = () => {
 
   return useMutation({
     mutationFn: async (items: any[]) => {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('payable_installments')
-        .insert(items)
-        .select();
+        .insert(items);
 
       if (error) throw error;
-      return data;
     },
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ['payable_installments'] }),
@@ -283,71 +277,13 @@ export const useCreateReceivableInstallments = () => {
 
   return useMutation({
     mutationFn: async (items: any[]) => {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('receivable_installments')
-        .insert(items)
-        .select();
+        .insert(items);
 
       if (error) throw error;
-      return data;
     },
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ['receivable_installments'] }),
-  });
-};
-
-export const useCreateCreditCard = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (newItem: any) => {
-      const { data, error } = await supabase
-        .from('credit_cards')
-        .insert(newItem)
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['credit_cards'] }),
-  });
-};
-
-export const useUpdateCreditCard = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({ id, ...updates }: any) => {
-      const { data, error } = await supabase
-        .from('credit_cards')
-        .update(updates)
-        .eq('id', id)
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['credit_cards'] }),
-  });
-};
-
-export const useDeleteCreditCard = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from('credit_cards')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
-    },
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['credit_cards'] }),
   });
 };
