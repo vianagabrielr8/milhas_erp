@@ -246,3 +246,46 @@ export const useCreatePayableInstallments = () => {
 };
 
 /* ======================================================
+   CREATE RECEIVABLE
+====================================================== */
+export const useCreateReceivable = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: any) => {
+      const { data, error } = await supabase
+        .from('receivables')
+        .insert(payload)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['receivable_installments'] });
+    },
+  });
+};
+
+/* ======================================================
+   CREATE RECEIVABLE INSTALLMENTS
+====================================================== */
+export const useCreateReceivableInstallments = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (items: any[]) => {
+      const { data, error } = await supabase
+        .from('receivable_installments')
+        .insert(items)
+        .select();
+
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['receivable_installments'] });
+    },
+  });
+};
