@@ -36,18 +36,18 @@ export const usePrograms = () =>
   });
 
 /* ======================================================
-   PASSAGEIROS (BUSCA NA NOVA TABELA)
+   PASSAGEIROS (USANDO A TABELA CORRETA 'passengers')
 ====================================================== */
 export const usePassageiros = () => {
   return useQuery({
-    queryKey: ['passengers'], // NOVO QUERY KEY
+    queryKey: ['passengers'],
     queryFn: async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return [];
 
       const { data, error } = await supabase
         .from('passengers') // MIGRADO PARA A TABELA CORRETA
-        .select('id, name, cpf, phone') // CORRIGIDO: Usa 'phone' e os campos essenciais
+        .select('id, name, cpf') // APENAS CAMPOS ESSENCIAIS (SEM 'phone')
         .eq('user_id', user.id)
         .order('name');
 
@@ -94,6 +94,7 @@ export const useSuppliers = () =>
       return data ?? [];
     },
   });
+
 
 /* ======================================================
    TRANSACTIONS
@@ -146,7 +147,7 @@ export const useExpiringMiles = () =>
   });
 
 /* ======================================================
-   PAYABLE INSTALLMENTS (COM CORREÇÃO DE DESCRIÇÃO)
+   PAYABLE INSTALLMENTS (CORRIGIDO PARA DESCRIÇÃO)
 ====================================================== */
 export const usePayableInstallments = () =>
   useQuery({
@@ -340,17 +341,17 @@ export const useDeleteCreditCard = () => {
 };
 
 /* ======================================================
-   CRIAÇÃO DE PASSAGEIRO (MUTATION)
+   CRIAÇÃO DE PASSAGEIRO (SEM CAMPO 'phone')
 ====================================================== */
 interface NewPassenger {
   name: string;
   cpf: string;
-  phone: string;
-  transaction_id: string; 
   user_id: string;
 }
 
 export const useCreatePassenger = () => {
+  const qc = useQueryClient();
+
   return useMutation({
     mutationFn: async (passengerData: NewPassenger) => {
       const { data, error } = await supabase
@@ -361,9 +362,8 @@ export const useCreatePassenger = () => {
       if (error) throw error;
       return data;
     },
-    onSuccess: (data, variables, context) => {
-      // Invalida a lista de passageiros após a criação de um novo
-      useQueryClient().invalidateQueries({ queryKey: ['passengers'] });
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['passengers'] });
     }
   });
 };
