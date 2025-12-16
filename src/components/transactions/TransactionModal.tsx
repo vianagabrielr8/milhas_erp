@@ -32,23 +32,20 @@ interface Props {
 }
 
 export function TransactionModal({ open, onOpenChange }: Props) {
-  // 🔹 DADOS
   const { data: accounts = [] } = useAccounts();
   const { data: programs = [] } = usePrograms();
   const { data: passageiros = [] } = usePassageiros();
 
   const createTransaction = useCreateTransaction();
 
-  // 🔹 ESTADOS
-  const [accountId, setAccountId] = useState<string | undefined>(undefined);
-  const [programId, setProgramId] = useState<string | undefined>(undefined);
-  const [clientId, setClientId] = useState<string | undefined>(undefined);
+  const [accountId, setAccountId] = useState('');
+  const [programId, setProgramId] = useState('');
+  const [clientId, setClientId] = useState('');
   const [quantity, setQuantity] = useState('');
   const [price, setPrice] = useState('');
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [loading, setLoading] = useState(false);
 
-  // 🔹 TOTAL
   const total = useMemo(() => {
     const q = Number(quantity);
     const p = Number(price);
@@ -56,19 +53,17 @@ export function TransactionModal({ open, onOpenChange }: Props) {
     return (q / 1000) * p;
   }, [quantity, price]);
 
-  // 🔹 RESET DO MODAL (OBRIGATÓRIO)
   useEffect(() => {
     if (open) {
-      setAccountId(undefined);
-      setProgramId(undefined);
-      setClientId(undefined);
+      setAccountId('');
+      setProgramId('');
+      setClientId('');
       setQuantity('');
       setPrice('');
       setDate(format(new Date(), 'yyyy-MM-dd'));
     }
   }, [open]);
 
-  // 🔹 SUBMIT
   const handleSubmit = async () => {
     if (!accountId || !programId || !quantity || !price) {
       toast.error('Preencha todos os campos obrigatórios');
@@ -77,10 +72,7 @@ export function TransactionModal({ open, onOpenChange }: Props) {
 
     setLoading(true);
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
+      const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Usuário não autenticado');
 
       await createTransaction.mutateAsync({
@@ -112,14 +104,9 @@ export function TransactionModal({ open, onOpenChange }: Props) {
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* CONTA */}
           <div>
             <Label>Conta</Label>
-            <Select
-              value={accountId}
-              onValueChange={setAccountId}
-              disabled={accounts.length === 0}
-            >
+            <Select value={accountId} onValueChange={setAccountId}>
               <SelectTrigger>
                 <SelectValue placeholder="Selecione a conta" />
               </SelectTrigger>
@@ -133,14 +120,9 @@ export function TransactionModal({ open, onOpenChange }: Props) {
             </Select>
           </div>
 
-          {/* PROGRAMA */}
           <div>
             <Label>Programa</Label>
-            <Select
-              value={programId}
-              onValueChange={setProgramId}
-              disabled={programs.length === 0}
-            >
+            <Select value={programId} onValueChange={setProgramId}>
               <SelectTrigger>
                 <SelectValue placeholder="Selecione o programa" />
               </SelectTrigger>
@@ -154,14 +136,9 @@ export function TransactionModal({ open, onOpenChange }: Props) {
             </Select>
           </div>
 
-          {/* PASSAGEIRO */}
           <div>
             <Label>Passageiro (opcional)</Label>
-            <Select
-              value={clientId}
-              onValueChange={setClientId}
-              disabled={passageiros.length === 0}
-            >
+            <Select value={clientId} onValueChange={setClientId}>
               <SelectTrigger>
                 <SelectValue placeholder="Selecione o passageiro" />
               </SelectTrigger>
@@ -175,43 +152,23 @@ export function TransactionModal({ open, onOpenChange }: Props) {
             </Select>
           </div>
 
-          {/* QUANTIDADE */}
           <div>
             <Label>Quantidade de milhas</Label>
-            <Input
-              type="number"
-              value={quantity}
-              onChange={e => setQuantity(e.target.value)}
-            />
+            <Input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} />
           </div>
 
-          {/* PREÇO */}
           <div>
             <Label>Preço por milheiro</Label>
-            <Input
-              type="number"
-              value={price}
-              onChange={e => setPrice(e.target.value)}
-            />
+            <Input type="number" value={price} onChange={e => setPrice(e.target.value)} />
           </div>
 
-          {/* DATA */}
           <div>
             <Label>Data</Label>
-            <Input
-              type="date"
-              value={date}
-              onChange={e => setDate(e.target.value)}
-            />
+            <Input type="date" value={date} onChange={e => setDate(e.target.value)} />
           </div>
 
-          {/* AÇÕES */}
           <div className="flex justify-end gap-2 pt-4">
-            <Button
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={loading}
-            >
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
               Cancelar
             </Button>
             <Button onClick={handleSubmit} disabled={loading}>
