@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
 // ==========================================
-// 1. LEITURA DE DADOS (QUERIES)
+// QUERIES
 // ==========================================
 
 // TRANSACTIONS
@@ -130,13 +130,12 @@ export const useMilesBalance = () => {
   return useQuery({
     queryKey: ['miles_balance'],
     queryFn: async () => {
-      const { data: balanceData, error } = await supabase
+      const { data, error } = await supabase
         .from('miles_balance')
         .select(`*, program:programs(name), account:accounts(name)`);
 
       if (error) throw error;
-
-      return balanceData;
+      return data;
     },
   });
 };
@@ -146,13 +145,9 @@ export const useExpiringMiles = () => {
   return useQuery({
     queryKey: ['expiring_miles'],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return [];
-
       const { data, error } = await supabase
         .from('expiring_miles')
         .select('*')
-        .eq('user_id', user.id)
         .order('expiration_date');
 
       if (error) return [];
@@ -161,7 +156,7 @@ export const useExpiringMiles = () => {
   });
 };
 
-// 🔥 PAYABLE INSTALLMENTS (FALTAVA)
+// PAYABLE INSTALLMENTS
 export const usePayableInstallments = () => {
   return useQuery({
     queryKey: ['payable_installments'],
@@ -177,7 +172,7 @@ export const usePayableInstallments = () => {
   });
 };
 
-// 🔥 RECEIVABLE INSTALLMENTS (FALTAVA)
+// RECEIVABLE INSTALLMENTS
 export const useReceivableInstallments = () => {
   return useQuery({
     queryKey: ['receivable_installments'],
@@ -194,7 +189,7 @@ export const useReceivableInstallments = () => {
 };
 
 // ==========================================
-// 2. MUTATIONS
+// MUTATIONS
 // ==========================================
 
 export const useCreateTransaction = () => {
@@ -285,5 +280,62 @@ export const useCreateReceivableInstallments = () => {
     },
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ['receivable_installments'] }),
+  });
+};
+
+// 🔥 ESTES ERAM OS QUE FALTAVAM
+export const useCreateCreditCard = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (item: any) => {
+      const { data, error } = await supabase
+        .from('credit_cards')
+        .insert(item)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['credit_cards'] }),
+  });
+};
+
+export const useUpdateCreditCard = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, ...updates }: any) => {
+      const { data, error } = await supabase
+        .from('credit_cards')
+        .update(updates)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['credit_cards'] }),
+  });
+};
+
+export const useDeleteCreditCard = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('credit_cards')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['credit_cards'] }),
   });
 };
