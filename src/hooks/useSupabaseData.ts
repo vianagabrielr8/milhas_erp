@@ -267,6 +267,7 @@ export const useCreateReceivableInstallments = () => {
   });
 };
 
+
 /* ======================================================
    CREDIT CARDS - MUTATIONS (OBRIGATÓRIO)
 ====================================================== */
@@ -326,6 +327,31 @@ export const useDeleteCreditCard = () => {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['credit_cards'] });
+    },
+  });
+};
+
+/* ======================================================
+   CRIAÇÃO DE PASSAGEIRO PARA UMA VENDA
+====================================================== */
+interface NewPassenger {
+  name: string;
+  cpf: string;
+  phone: string;
+  transaction_id: string; // ID da venda que este passageiro pertence
+  user_id: string;
+}
+
+export const useCreatePassenger = () => {
+  return useMutation({
+    mutationFn: async (passengerData: NewPassenger) => {
+      const { data, error } = await supabase
+        .from('passengers')
+        .insert(passengerData)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
     },
   });
 };
