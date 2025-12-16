@@ -32,9 +32,15 @@ interface Props {
 }
 
 export function TransactionModal({ open, onOpenChange }: Props) {
-  const { data: accounts = [] } = useAccounts();
-  const { data: programs = [] } = usePrograms();
-  const { data: passageiros = [] } = usePassageiros();
+const { data: accounts = [] } = useAccounts();
+const { data: programs = [] } = usePrograms();
+const { data: passageiros = [] } = usePassageiros();
+
+console.log('ACCOUNTS (modal):', accounts);
+console.log('PROGRAMS (modal):', programs);
+console.log('PASSAGEIROS (modal):', passageiros);
+
+
 
   const createTransaction = useCreateTransaction();
 
