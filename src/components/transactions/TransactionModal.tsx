@@ -44,9 +44,9 @@ console.log('PASSAGEIROS (modal):', passageiros);
 
   const createTransaction = useCreateTransaction();
 
-  const [accountId, setAccountId] = useState('');
-  const [programId, setProgramId] = useState('');
-  const [clientId, setClientId] = useState('');
+const [accountId, setAccountId] = useState<string | undefined>(undefined);
+const [programId, setProgramId] = useState<string | undefined>(undefined);
+const [clientId, setClientId] = useState<string | undefined>(undefined);
   const [quantity, setQuantity] = useState('');
   const [price, setPrice] = useState('');
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -61,9 +61,9 @@ console.log('PASSAGEIROS (modal):', passageiros);
 
   useEffect(() => {
     if (open) {
-      setAccountId('');
-      setProgramId('');
-      setClientId('');
+setAccountId(undefined);
+setProgramId(undefined);
+setClientId(undefined);
       setQuantity('');
       setPrice('');
       setDate(format(new Date(), 'yyyy-MM-dd'));
