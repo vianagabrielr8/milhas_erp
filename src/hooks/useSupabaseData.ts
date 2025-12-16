@@ -4,8 +4,8 @@ import { supabase } from '@/integrations/supabase/client';
 /* ======================================================
    ACCOUNTS
 ====================================================== */
-export const useAccounts = () => {
-  return useQuery({
+export const useAccounts = () =>
+  useQuery({
     queryKey: ['accounts'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -13,21 +13,16 @@ export const useAccounts = () => {
         .select('id, name')
         .order('name');
 
-      if (error) {
-        console.error('ACCOUNTS ERROR:', error);
-        return [];
-      }
-
+      if (error) return [];
       return data ?? [];
     },
   });
-};
 
 /* ======================================================
    PROGRAMS
 ====================================================== */
-export const usePrograms = () => {
-  return useQuery({
+export const usePrograms = () =>
+  useQuery({
     queryKey: ['programs'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -35,21 +30,16 @@ export const usePrograms = () => {
         .select('id, name')
         .order('name');
 
-      if (error) {
-        console.error('PROGRAMS ERROR:', error);
-        return [];
-      }
-
+      if (error) return [];
       return data ?? [];
     },
   });
-};
 
 /* ======================================================
    CLIENTS / PASSAGEIROS
 ====================================================== */
-export const usePassageiros = () => {
-  return useQuery({
+export const usePassageiros = () =>
+  useQuery({
     queryKey: ['clients'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -57,21 +47,33 @@ export const usePassageiros = () => {
         .select('id, name')
         .order('name');
 
-      if (error) {
-        console.error('CLIENTS ERROR:', error);
-        return [];
-      }
-
+      if (error) return [];
       return data ?? [];
     },
   });
-};
+
+/* ======================================================
+   CREDIT CARDS  🔥 (ERA O QUE FALTAVA)
+====================================================== */
+export const useCreditCards = () =>
+  useQuery({
+    queryKey: ['credit_cards'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('credit_cards')
+        .select('*')
+        .order('name');
+
+      if (error) return [];
+      return data ?? [];
+    },
+  });
 
 /* ======================================================
    TRANSACTIONS
 ====================================================== */
-export const useTransactions = () => {
-  return useQuery({
+export const useTransactions = () =>
+  useQuery({
     queryKey: ['transactions'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -79,42 +81,32 @@ export const useTransactions = () => {
         .select('*')
         .order('transaction_date', { ascending: false });
 
-      if (error) {
-        console.error('TRANSACTIONS ERROR:', error);
-        return [];
-      }
-
+      if (error) return [];
       return data ?? [];
     },
   });
-};
 
 /* ======================================================
    MILES BALANCE
 ====================================================== */
-export const useMilesBalance = () => {
-  return useQuery({
+export const useMilesBalance = () =>
+  useQuery({
     queryKey: ['miles_balance'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('miles_balance')
         .select('*');
 
-      if (error) {
-        console.error('MILES BALANCE ERROR:', error);
-        return [];
-      }
-
+      if (error) return [];
       return data ?? [];
     },
   });
-};
 
 /* ======================================================
    EXPIRING MILES
 ====================================================== */
-export const useExpiringMiles = () => {
-  return useQuery({
+export const useExpiringMiles = () =>
+  useQuery({
     queryKey: ['expiring_miles'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -122,21 +114,16 @@ export const useExpiringMiles = () => {
         .select('*')
         .order('expiration_date');
 
-      if (error) {
-        console.error('EXPIRING MILES ERROR:', error);
-        return [];
-      }
-
+      if (error) return [];
       return data ?? [];
     },
   });
-};
 
 /* ======================================================
    PAYABLE INSTALLMENTS
 ====================================================== */
-export const usePayableInstallments = () => {
-  return useQuery({
+export const usePayableInstallments = () =>
+  useQuery({
     queryKey: ['payable_installments'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -144,21 +131,16 @@ export const usePayableInstallments = () => {
         .select('*')
         .order('due_date');
 
-      if (error) {
-        console.error('PAYABLE INSTALLMENTS ERROR:', error);
-        return [];
-      }
-
+      if (error) return [];
       return data ?? [];
     },
   });
-};
 
 /* ======================================================
    RECEIVABLE INSTALLMENTS
 ====================================================== */
-export const useReceivableInstallments = () => {
-  return useQuery({
+export const useReceivableInstallments = () =>
+  useQuery({
     queryKey: ['receivable_installments'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -166,22 +148,16 @@ export const useReceivableInstallments = () => {
         .select('*')
         .order('due_date');
 
-      if (error) {
-        console.error('RECEIVABLE INSTALLMENTS ERROR:', error);
-        return [];
-      }
-
+      if (error) return [];
       return data ?? [];
     },
   });
-};
 
 /* ======================================================
-   CREATE TRANSACTION
+   MUTATIONS
 ====================================================== */
 export const useCreateTransaction = () => {
-  const queryClient = useQueryClient();
-
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: async (payload: any) => {
       const { data, error } = await supabase
@@ -194,18 +170,14 @@ export const useCreateTransaction = () => {
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      queryClient.invalidateQueries({ queryKey: ['miles_balance'] });
+      qc.invalidateQueries({ queryKey: ['transactions'] });
+      qc.invalidateQueries({ queryKey: ['miles_balance'] });
     },
   });
 };
 
-/* ======================================================
-   CREATE PAYABLE
-====================================================== */
 export const useCreatePayable = () => {
-  const queryClient = useQueryClient();
-
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: async (payload: any) => {
       const { data, error } = await supabase
@@ -217,40 +189,28 @@ export const useCreatePayable = () => {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['payable_installments'] });
-    },
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ['payable_installments'] }),
   });
 };
 
-/* ======================================================
-   CREATE PAYABLE INSTALLMENTS
-====================================================== */
 export const useCreatePayableInstallments = () => {
-  const queryClient = useQueryClient();
-
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: async (items: any[]) => {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('payable_installments')
-        .insert(items)
-        .select();
+        .insert(items);
 
       if (error) throw error;
-      return data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['payable_installments'] });
-    },
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ['payable_installments'] }),
   });
 };
 
-/* ======================================================
-   CREATE RECEIVABLE
-====================================================== */
 export const useCreateReceivable = () => {
-  const queryClient = useQueryClient();
-
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: async (payload: any) => {
       const { data, error } = await supabase
@@ -262,30 +222,22 @@ export const useCreateReceivable = () => {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['receivable_installments'] });
-    },
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ['receivable_installments'] }),
   });
 };
 
-/* ======================================================
-   CREATE RECEIVABLE INSTALLMENTS
-====================================================== */
 export const useCreateReceivableInstallments = () => {
-  const queryClient = useQueryClient();
-
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: async (items: any[]) => {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('receivable_installments')
-        .insert(items)
-        .select();
+        .insert(items);
 
       if (error) throw error;
-      return data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['receivable_installments'] });
-    },
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ['receivable_installments'] }),
   });
 };
