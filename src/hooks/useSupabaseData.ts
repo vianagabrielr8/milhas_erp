@@ -355,3 +355,20 @@ export const useCreatePassenger = () => {
     },
   });
 };
+
+/* ======================================================
+   SUPPLIERS
+====================================================== */
+export const useSuppliers = () =>
+  useQuery({
+    queryKey: ['suppliers'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('suppliers')
+        .select('*') // Busca todos os campos da tabela de fornecedores
+        .order('name');
+
+      if (error) return [];
+      return data ?? [];
+    },
+  });
