@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -27,20 +32,23 @@ interface Props {
 }
 
 export function TransactionModal({ open, onOpenChange }: Props) {
+  // 🔹 DADOS
   const { data: accounts = [] } = useAccounts();
   const { data: programs = [] } = usePrograms();
   const { data: passageiros = [] } = usePassageiros();
 
   const createTransaction = useCreateTransaction();
 
-  const [accountId, setAccountId] = useState('');
-  const [programId, setProgramId] = useState('');
-  const [clientId, setClientId] = useState('');
+  // 🔹 ESTADOS
+  const [accountId, setAccountId] = useState<string | undefined>(undefined);
+  const [programId, setProgramId] = useState<string | undefined>(undefined);
+  const [clientId, setClientId] = useState<string | undefined>(undefined);
   const [quantity, setQuantity] = useState('');
   const [price, setPrice] = useState('');
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [loading, setLoading] = useState(false);
 
+  // 🔹 TOTAL
   const total = useMemo(() => {
     const q = Number(quantity);
     const p = Number(price);
@@ -48,17 +56,19 @@ export function TransactionModal({ open, onOpenChange }: Props) {
     return (q / 1000) * p;
   }, [quantity, price]);
 
+  // 🔹 RESET DO MODAL (OBRIGATÓRIO)
   useEffect(() => {
     if (open) {
-      setAccountId('');
-      setProgramId('');
-      setClientId('');
+      setAccountId(undefined);
+      setProgramId(undefined);
+      setClientId(undefined);
       setQuantity('');
       setPrice('');
       setDate(format(new Date(), 'yyyy-MM-dd'));
     }
   }, [open]);
 
+  // 🔹 SUBMIT
   const handleSubmit = async () => {
     if (!accountId || !programId || !quantity || !price) {
       toast.error('Preencha todos os campos obrigatórios');
@@ -67,7 +77,10 @@ export function TransactionModal({ open, onOpenChange }: Props) {
 
     setLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
       if (!user) throw new Error('Usuário não autenticado');
 
       await createTransaction.mutateAsync({
@@ -83,7 +96,7 @@ export function TransactionModal({ open, onOpenChange }: Props) {
 
       toast.success('Transação criada com sucesso');
       onOpenChange(false);
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       toast.error('Erro ao salvar transação');
     } finally {
@@ -102,7 +115,11 @@ export function TransactionModal({ open, onOpenChange }: Props) {
           {/* CONTA */}
           <div>
             <Label>Conta</Label>
-            <Select value={accountId} onValueChange={setAccountId}>
+            <Select
+              value={accountId}
+              onValueChange={setAccountId}
+              disabled={accounts.length === 0}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Selecione a conta" />
               </SelectTrigger>
@@ -119,7 +136,11 @@ export function TransactionModal({ open, onOpenChange }: Props) {
           {/* PROGRAMA */}
           <div>
             <Label>Programa</Label>
-            <Select value={programId} onValueChange={setProgramId}>
+            <Select
+              value={programId}
+              onValueChange={setProgramId}
+              disabled={programs.length === 0}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Selecione o programa" />
               </SelectTrigger>
@@ -136,7 +157,11 @@ export function TransactionModal({ open, onOpenChange }: Props) {
           {/* PASSAGEIRO */}
           <div>
             <Label>Passageiro (opcional)</Label>
-            <Select value={clientId} onValueChange={setClientId}>
+            <Select
+              value={clientId}
+              onValueChange={setClientId}
+              disabled={passageiros.length === 0}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Selecione o passageiro" />
               </SelectTrigger>
@@ -180,8 +205,13 @@ export function TransactionModal({ open, onOpenChange }: Props) {
             />
           </div>
 
+          {/* AÇÕES */}
           <div className="flex justify-end gap-2 pt-4">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
+            <Button
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={loading}
+            >
               Cancelar
             </Button>
             <Button onClick={handleSubmit} disabled={loading}>
