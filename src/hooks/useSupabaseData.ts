@@ -31,7 +31,7 @@ export const usePrograms = () =>
   });
 
 /* ======================================================
-   PASSAGEIROS (Estrutura Simples - Name e CPF)
+   PASSAGEIROS (Nova Estrutura: Apenas Name e CPF)
 ====================================================== */
 export const usePassageiros = () => {
   return useQuery({
@@ -51,7 +51,7 @@ export const usePassageiros = () => {
 };
 
 /* ======================================================
-   DASHBOARD & SALDOS (CORREÇÃO DO ERRO DE BUILD)
+   DASHBOARD & SALDOS
 ====================================================== */
 export const useMilesBalance = () =>
   useQuery({
@@ -107,7 +107,7 @@ export const useTransactions = () =>
   });
 
 /* ======================================================
-   FINANCEIRO
+   FINANCEIRO (LEITURA)
 ====================================================== */
 export const usePayableInstallments = () =>
   useQuery({
@@ -142,7 +142,7 @@ export const useReceivableInstallments = () =>
   });
 
 /* ======================================================
-   MUTATIONS (CRIAR / SALVAR)
+   MUTATIONS (CRIAÇÃO / SALVAR) - NECESSÁRIO PARA O BUILD
 ====================================================== */
 export const useCreateTransaction = () => {
   const qc = useQueryClient();
@@ -163,15 +163,34 @@ export const useCreatePassenger = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (payload: { name: string; cpf: string; user_id: string }) => {
-      const { data, error } = await supabase
-        .from('passengers')
-        .insert(payload)
-        .select()
-        .single();
+      const { data, error } = await supabase.from('passengers').insert(payload).select().single();
       if (error) throw error;
       return data;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['passengers'] }),
+  });
+};
+
+export const useCreatePayable = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: any) => {
+      const { data, error } = await supabase.from('payables').insert(payload).select().single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['payable_installments'] }),
+  });
+};
+
+export const useCreatePayableInstallments = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (items: any[]) => {
+      const { error } = await supabase.from('payable_installments').insert(items);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['payable_installments'] }),
   });
 };
 
