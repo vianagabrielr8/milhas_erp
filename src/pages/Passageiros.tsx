@@ -14,19 +14,22 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
-// Importação de tipo de Passageiro (ajustado para o novo modelo simplificado)
+import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client'; // Importado para buscar o user_id
+
+// Tipo de Passageiro (Alinhado com a nova tabela sem 'phone')
 interface PassageiroType {
     id: string;
     name: string;
     cpf: string;
-    // Removidas referências a telefone/email/observacoes
 }
-import { toast } from 'sonner';
 
-// Para mascaramento de CPF simples (se você não tiver uma biblioteca de máscara)
+// Função de Máscara de CPF para exibição e input
 const formatCPF = (value: string) => {
     if (!value) return "";
     value = value.replace(/\D/g, ''); // Remove tudo que não é dígito
+    if (value.length > 11) value = value.substring(0, 11); // Limita a 11 dígitos
+    
     value = value.replace(/(\d{3})(\d)/, "$1.$2");
     value = value.replace(/(\d{3})(\d)/, "$1.$2");
     value = value.replace(/(\d{3})(\d{1,2})$/, "$1-$2");
@@ -35,8 +38,7 @@ const formatCPF = (value: string) => {
 
 
 const Passageiros = () => {
-  // NOTA: Presumo que addCliente/updateCliente/deleteCliente utilizam as mutações useCreate/Update/DeletePassenger
-  // injetadas via DataContext.
+  // Puxa o array 'passageiros' e as funções 'add/update/deleteCliente' (mutações) do contexto.
   const { passageiros, addCliente, updateCliente, deleteCliente } = useData();
 
   const [isOpen, setIsOpen] = useState(false);
@@ -57,15 +59,13 @@ const Passageiros = () => {
 
   const handleCpfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const rawCpf = e.target.value.replace(/\D/g, ''); 
-      // Limita a 11 dígitos para evitar problemas de formato na máscara
-      const limitedCpf = rawCpf.substring(0, 11);
-      setFormData({ ...formData, cpf: formatCPF(limitedCpf) });
+      setFormData({ ...formData, cpf: formatCPF(rawCpf) });
   }
-  
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // VALIDAÇÃO
+    // VALIDAÇÃO: Nome e CPF
     if (!formData.nome.trim()) {
         toast.error('O nome é obrigatório.');
         return;
@@ -76,23 +76,31 @@ const Passageiros = () => {
         return;
     }
 
-    // DADOS A SEREM SALVOS - APENAS NAME E CPF (LIMPO)
+    // 1. BUSCA O USER_ID (CRÍTICO PARA RLS)
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+        toast.error('Usuário não autenticado. Faça login novamente.');
+        return;
+    }
+
+    // 2. MONTA O PAYLOAD (Apenas name e cpf limpo)
     const dataToSave = {
         name: formData.nome, 
-        cpf: rawCpf, // Envia o CPF limpo
-        // active é definido no componente, se a coluna existir no banco
+        cpf: rawCpf, // Envia o CPF limpo (apenas dígitos)
+        user_id: user.id, // CRÍTICO: Adiciona o ID do usuário logado
         active: true, 
     }
 
     try {
         if (editingPassageiro) {
-            // ATUALIZAÇÃO - AQUI você deve usar a mutação de UPDATE
-            // Presume-se que o addCliente/updateCliente do DataContext chama os hooks useCreate/UpdatePassenger
+            // ATUALIZAÇÃO
+            // Presume-se que 'updateCliente' chama useUpdatePassenger
             await updateCliente({ id: editingPassageiro.id, ...dataToSave }); 
             toast.success('Passageiro atualizado com sucesso!');
 
         } else {
             // CRIAÇÃO
+            // Presume-se que 'addCliente' chama useCreatePassenger
             await addCliente(dataToSave);
             toast.success('Passageiro cadastrado com sucesso!');
         }
@@ -102,7 +110,7 @@ const Passageiros = () => {
 
     } catch (error) {
         console.error("Erro ao salvar passageiro:", error);
-        toast.error("Erro ao salvar passageiro. Verifique o console.");
+        toast.error("Erro ao salvar passageiro. Detalhes no console.");
     }
   };
 
@@ -118,7 +126,7 @@ const Passageiros = () => {
   const handleDelete = async (id: string) => {
     if (confirm('Tem certeza que deseja excluir este passageiro?')) {
         try {
-            await deleteCliente(id); // Chama a mutação de DELETE
+            await deleteCliente(id); 
             toast.success('Passageiro excluído com sucesso!');
         } catch (error) {
             toast.error('Erro ao excluir. Tente novamente.');
@@ -131,7 +139,8 @@ const Passageiros = () => {
     { 
         key: 'cpf', 
         header: 'CPF',
-        render: (passageiro: PassageiroType) => formatCPF(passageiro.cpf) // Aplica a máscara na exibição
+        // Aplica a máscara na exibição da tabela
+        render: (passageiro: PassageiroType) => formatCPF(passageiro.cpf) 
     },
     {
       key: 'actions',
