@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
 /* ======================================================
-   ACCOUNTS
+ACCOUNTS
 ====================================================== */
 export const useAccounts = () =>
   useQuery({
@@ -10,7 +10,7 @@ export const useAccounts = () =>
     queryFn: async () => {
       const { data, error } = await supabase
         .from('accounts')
-        .select('id, name, cpf, active, user_id') // CORRIGIDO: Inclui CPF e STATUS
+        .select('id, name, cpf, active, user_id') // CORREÇÃO: Campos CPF e active adicionados
         .order('name');
 
       if (error) return [];
@@ -27,7 +27,7 @@ export const usePrograms = () =>
     queryFn: async () => {
       const { data, error } = await supabase
         .from('programs')
-        .select('id, name, cpf_limit, active') // CORRIGIDO: Inclui Limite CPF e STATUS
+        .select('id, name, cpf_limit, active') // CORREÇÃO: Campos cpf_limit e active adicionados
         .order('name');
 
       if (error) return [];
