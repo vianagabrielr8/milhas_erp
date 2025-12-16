@@ -43,10 +43,10 @@ console.log('PASSAGEIROS (modal):', passageiros);
 
 
   const createTransaction = useCreateTransaction();
+const [programId, setProgramId] = useState<string>('');
+const [accountId, setAccountId] = useState<string>('');
+const [clientId, setClientId] = useState<string>('');
 
-const [accountId, setAccountId] = useState<string | undefined>(undefined);
-const [programId, setProgramId] = useState<string | undefined>(undefined);
-const [clientId, setClientId] = useState<string | undefined>(undefined);
   const [quantity, setQuantity] = useState('');
   const [price, setPrice] = useState('');
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -61,9 +61,9 @@ const [clientId, setClientId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     if (open) {
-setAccountId(undefined);
-setProgramId(undefined);
-setClientId(undefined);
+setProgramId('');
+setAccountId('');
+setClientId('');
       setQuantity('');
       setPrice('');
       setDate(format(new Date(), 'yyyy-MM-dd'));
@@ -128,7 +128,10 @@ setClientId(undefined);
 
           <div>
             <Label>Programa</Label>
-            <Select value={programId} onValueChange={setProgramId}>
+<Select
+  value={programId || undefined}
+  onValueChange={setProgramId}
+>
               <SelectTrigger>
                 <SelectValue placeholder="Selecione o programa" />
               </SelectTrigger>
