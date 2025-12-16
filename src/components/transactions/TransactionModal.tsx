@@ -1,30 +1,37 @@
 import { useEffect, useMemo, useState } from 'react';
-import { format, subYears } from 'date-fns';
+import { format, subYears, isWithinInterval, addMonths, subMonths, startOfMonth, endOfMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { 
+    Select, 
+    SelectContent, 
+    SelectItem, 
+    SelectTrigger, 
+    SelectValue 
+} from '@/components/ui/select'; // Mantido para Tipo de Transação e Cartões
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 
 import {
-  TrendingUp,
-  TrendingDown,
-  CreditCard,
-  Calendar,
-  Wallet,
-  AlertTriangle,
-  CalendarCheck,
-  Loader2,
+  TrendingUp,
+  TrendingDown,
+  CreditCard,
+  Calendar,
+  Wallet,
+  AlertTriangle,
+  CalendarCheck,
+  Loader2,
 } from 'lucide-react';
 
 import { toast } from 'sonner';
@@ -32,350 +39,676 @@ import { supabase } from '@/integrations/supabase/client';
 import { useData } from '@/contexts/DataContext';
 
 import {
-  useCreditCards,
-  useCreateTransaction,
-  useCreatePayable,
-  useCreatePayableInstallments,
-  useCreateReceivable,
-  useCreateReceivableInstallments,
+  useCreditCards,
+  useSuppliers,
+  useCreateTransaction,
+  useCreatePayable,
+  useCreatePayableInstallments,
+  useCreateReceivable,
+  useCreateReceivableInstallments,
 } from '@/hooks/useSupabaseData';
 
 import {
-  calculateCardDates,
-  generateInstallments,
-  formatCPM,
-  formatCurrency,
-  calculateSaleProfit,
+  calculateCardDates,
+  generateInstallments,
+  formatCPM,
+  formatCurrency,
+  calculateSaleProfit,
 } from '@/utils/financeLogic';
 
 import { Database } from '@/integrations/supabase/types';
 
 type TransactionType =
-  Database['public']['Enums']['transaction_type'];
+  Database['public']['Enums']['transaction_type'];
 
 interface TransactionModalProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }
 
 export function TransactionModal({
-  open,
-  onOpenChange,
+  open,
+  onOpenChange,
 }: TransactionModalProps) {
-  const { vendas, programas, contas, passageiros, isLoading } = useData();
-  const vendasSafe = vendas ?? [];
+  // OBTEM DADOS E ESTADO DE CARREGAMENTO
+  const { vendas, programas, contas, passageiros, isLoading } = useData();
+  const vendasSafe = vendas ?? []; // HARDENING: Garante array não nulo
 
-  const { data: creditCards } = useCreditCards();
+  const { data: creditCards } = useCreditCards();
+  const { data: suppliers } = useSuppliers(); // Incluindo useSuppliers
 
-  const createTransaction = useCreateTransaction();
-  const createPayable = useCreatePayable();
-  const createPayableInstallments = useCreatePayableInstallments();
-  const createReceivable = useCreateReceivable();
-  const createReceivableInstallments =
-    useCreateReceivableInstallments();
+  const createTransaction = useCreateTransaction();
+  const createPayable = useCreatePayable();
+  const createPayableInstallments = useCreatePayableInstallments();
+  const createReceivable = useCreateReceivable();
+  const createReceivableInstallments =
+    useCreateReceivableInstallments();
 
-  // IDs reais
-  const [accountId, setAccountId] = useState('');
-  const [programId, setProgramId] = useState('');
-  const [clientId, setClientId] = useState('');
+  // IDs reais (enviados no payload)
+  const [accountId, setAccountId] = useState('');
+  const [programId, setProgramId] = useState('');
+  const [clientId, setClientId] = useState(''); // ID do Passageiro/Cliente
+  const [supplierId, setSupplierId] = useState(''); // ID do Fornecedor
 
-  // campos de busca
-  const [searchConta, setSearchConta] = useState('');
-  const [searchPrograma, setSearchPrograma] = useState('');
-  const [searchPassageiro, setSearchPassageiro] = useState('');
+  // campos de busca (mostrados no Input)
+  const [searchConta, setSearchConta] = useState('');
+  const [searchPrograma, setSearchPrograma] = useState('');
+  const [searchPassageiro, setSearchPassageiro] = useState('');
 
-  const [transactionType, setTransactionType] =
-    useState<TransactionType>('COMPRA');
-  const [quantity, setQuantity] = useState('');
-  const [pricePerThousand, setPricePerThousand] = useState('');
-  const [transactionDate, setTransactionDate] = useState(
-    format(new Date(), 'yyyy-MM-dd'),
+  const [transactionType, setTransactionType] =
+    useState<TransactionType>('COMPRA');
+  const [quantity, setQuantity] = useState('');
+  const [pricePerThousand, setPricePerThousand] = useState('');
+  const [transactionDate, setTransactionDate] = useState(
+    format(new Date(), 'yyyy-MM-dd'),
+  );
+  const [expirationDate, setExpirationDate] = useState('');
+  const [notes, setNotes] = useState('');
+
+  const [useCreditCard, setUseCreditCard] = useState(false);
+  const [selectedCardId, setSelectedCardId] = useState('');
+  const [installmentCount, setInstallmentCount] = useState('1');
+  const [manualDueDate, setManualDueDate] = useState(
+    format(new Date(), 'yyyy-MM-dd')
   );
-  const [expirationDate, setExpirationDate] = useState('');
-  const [notes, setNotes] = useState('');
 
-  const [useCreditCard, setUseCreditCard] = useState(false);
-  const [selectedCardId, setSelectedCardId] = useState('');
-  const [installmentCount, setInstallmentCount] = useState('1');
-  const [manualDueDate, setManualDueDate] = useState('');
+  const [useInstallments, setUseInstallments] = useState(false);
+  const [saleInstallments, setSaleInstallments] = useState('1');
+  const [firstReceiveDate, setFirstReceiveDate] = useState(
+    format(new Date(), 'yyyy-MM-dd'),
+  );
 
-  const [useInstallments, setUseInstallments] = useState(false);
-  const [saleInstallments, setSaleInstallments] = useState('1');
-  const [firstReceiveDate, setFirstReceiveDate] = useState(
-    format(new Date(), 'yyyy-MM-dd'),
-  );
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  // RESET
+  useEffect(() => {
+    if (open) {
+      const hoje = format(new Date(), 'yyyy-MM-dd');
+      setAccountId('');
+      setProgramId('');
+      setClientId('');
+      setSupplierId('');
+      setSearchConta('');
+      setSearchPrograma('');
+      setSearchPassageiro('');
+      setTransactionType('COMPRA');
+      setQuantity('');
+      setPricePerThousand('');
+      setTransactionDate(hoje);
+      setManualDueDate(hoje);
+      setExpirationDate('');
+      setNotes('');
+      setUseCreditCard(false);
+      setSelectedCardId('');
+      setInstallmentCount('1');
+      setUseInstallments(false);
+      setSaleInstallments('1');
+      setFirstReceiveDate(hoje);
+    }
+  }, [open]);
 
-  // RESET
-  useEffect(() => {
-    if (open) {
-      const hoje = format(new Date(), 'yyyy-MM-dd');
-      setAccountId('');
-      setProgramId('');
-      setClientId('');
-      setSearchConta('');
-      setSearchPrograma('');
-      setSearchPassageiro('');
-      setTransactionType('COMPRA');
-      setQuantity('');
-      setPricePerThousand('');
-      setTransactionDate(hoje);
-      setManualDueDate(hoje);
-      setExpirationDate('');
-      setNotes('');
-      setUseCreditCard(false);
-      setSelectedCardId('');
-      setInstallmentCount('1');
-      setUseInstallments(false);
-      setSaleInstallments('1');
-      setFirstReceiveDate(hoje);
-    }
-  }, [open]);
+  const calculatedTotal = useMemo(() => {
+    const q = Number(quantity);
+    const p = Number(pricePerThousand);
+    if (q <= 0 || p <= 0) return 0;
+    return (q / 1000) * p;
+  }, [quantity, pricePerThousand]);
 
-  const calculatedTotal = useMemo(() => {
-    const q = Number(quantity);
-    const p = Number(pricePerThousand);
-    if (q <= 0 || p <= 0) return 0;
-    return (q / 1000) * p;
-  }, [quantity, pricePerThousand]);
+  const firstPaymentDate = useMemo(() => {
+    if (useCreditCard && selectedCardId) {
+      const card = creditCards?.find(c => c.id === selectedCardId);
+      if (card) {
+        return calculateCardDates(
+          new Date(transactionDate),
+          card.closing_day,
+          card.due_day,
+        );
+      }
+    }
+    return manualDueDate && !isNaN(new Date(manualDueDate).getTime())
+      ? new Date(manualDueDate)
+      : new Date(transactionDate);
+  }, [
+    useCreditCard,
+    selectedCardId,
+    transactionDate,
+    manualDueDate,
+    creditCards,
+  ]);
 
-  const avgCpm = useMemo(() => {
-    const prog = programas?.find(p => p.id === programId);
-    return Number((prog as any)?.avg_cpm) || 0;
-  }, [programas, programId]);
+  const installmentPreview = useMemo(() => {
+    const count = Number(installmentCount);
+    if (!calculatedTotal || count <= 0) return [];
+    return generateInstallments(
+      calculatedTotal,
+      count,
+      firstPaymentDate,
+    );
+  }, [calculatedTotal, installmentCount, firstPaymentDate]);
 
-  const saleProfit = useMemo(() => {
-    const q = Number(quantity);
-    if (q <= 0 || !calculatedTotal) return null;
-    return calculateSaleProfit(
-      calculatedTotal,
-      q,
-      avgCpm / 1000,
-    );
-  }, [calculatedTotal, quantity, avgCpm]);
+  const avgCpm = useMemo(() => {
+    const prog = programas?.find(p => p.id === programId);
+    return Number((prog as any)?.avg_cpm) || 0;
+  }, [programas, programId]);
 
-  const cpfAlert = useMemo(() => {
-    if (
-      transactionType !== 'VENDA' ||
-      !programId ||
-      !accountId ||
-      !clientId
-    )
-      return null;
+  const saleProfit = useMemo(() => {
+    const q = Number(quantity);
+    if (q <= 0 || !calculatedTotal) return null;
+    return calculateSaleProfit(
+      calculatedTotal,
+      q,
+      avgCpm / 1000,
+    );
+  }, [calculatedTotal, quantity, avgCpm]);
 
-    const prog = programas?.find(p => p.id === programId);
-    const limite = Number((prog as any)?.cpf_limit) || 25;
-    const umAnoAtras = subYears(new Date(), 1);
+  const purchaseCpm = useMemo(() => {
+    return Number(pricePerThousand);
+  }, [pricePerThousand]);
 
-    const vendasRelevantes = vendasSafe.filter(
-      v =>
-        v.contaId === accountId &&
-        v.programaId === programId &&
-        new Date(v.dataVenda) >= umAnoAtras,
-    );
 
-    const clientes = new Set(
-      vendasRelevantes.map(v => v.clienteId),
-    );
+  const cpfAlert = useMemo(() => {
+    if (
+      transactionType !== 'VENDA' ||
+      !programId ||
+      !accountId ||
+      !clientId
+    )
+      return null;
 
-    if (clientes.has(clientId)) {
-      return { type: 'success', msg: 'Passageiro já utilizado.' };
-    }
-    if (clientes.size >= limite) {
-      return { type: 'error', msg: 'Limite de CPFs atingido.' };
-    }
-    return {
-      type: 'warning',
-      msg: `Consumirá nova cota (${clientes.size + 1}/${limite})`,
-    };
-  }, [transactionType, programId, accountId, clientId, vendasSafe, programas]);
+    const prog = programas?.find(p => p.id === programId);
+    const limite = Number((prog as any)?.cpf_limit) || 25;
+    const umAnoAtras = subYears(new Date(), 1);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+    const vendasRelevantes = vendasSafe.filter(
+      v =>
+        v.contaId === accountId &&
+        v.programaId === programId &&
+        new Date(v.dataVenda) >= umAnoAtras,
+    );
 
-    if (
-      !accountId ||
-      !programId ||
-      !quantity ||
-      !pricePerThousand ||
-      (transactionType === 'VENDA' && !clientId)
-    ) {
-      toast.error('Preencha os campos obrigatórios');
-      return;
-    }
+    const clientes = new Set(
+      vendasRelevantes.map(v => v.clienteId),
+    );
 
-    setIsSubmitting(true);
+    if (clientes.has(clientId)) {
+      return { type: 'success', msg: 'Passageiro já utilizado.' };
+    }
+    if (clientes.size >= limite) {
+      return { type: 'error', msg: 'Limite de CPFs atingido.' };
+    }
+    return {
+      type: 'warning',
+      msg: `Consumirá nova cota (${clientes.size + 1}/${limite})`,
+    };
+  }, [transactionType, programId, accountId, clientId, vendasSafe, programas]);
 
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Usuário não logado');
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
 
-      const qty = Math.abs(Number(quantity));
+    if (
+      !accountId ||
+      !programId ||
+      !quantity ||
+      !pricePerThousand ||
+      (transactionType === 'VENDA' && !clientId)
+    ) {
+      toast.error('Preencha os campos obrigatórios');
+      return;
+    }
 
-      await createTransaction.mutateAsync({
-        account_id: accountId,
-        program_id: programId,
-        type: transactionType,
-        quantity:
-          transactionType === 'VENDA' ? -qty : qty,
-        total_cost:
-          transactionType === 'COMPRA'
-            ? calculatedTotal
-            : null,
-        sale_price:
-          transactionType === 'VENDA'
-            ? calculatedTotal
-            : null,
-        transaction_date: transactionDate,
-        expiration_date: expirationDate || null,
-        notes: notes || null,
-        client_id: clientId || null,
-        user_id: user.id,
-      });
+    setIsSubmitting(true);
 
-      toast.success('Transação registrada');
-      onOpenChange(false);
-    } catch (err: any) {
-      toast.error(err.message || 'Erro');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Usuário não logado');
 
-  if (isLoading) {
-    return (
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent>
-          <div className="flex justify-center p-8">
-            <Loader2 className="h-8 w-8 animate-spin" />
-          </div>
-        </DialogContent>
-      </Dialog>
-    );
-  }
+      const qty = Math.abs(Number(quantity));
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Nova Transação</DialogTitle>
-        </DialogHeader>
+      // 1. TRANSAÇÃO PRINCIPAL
+      const transaction = await createTransaction.mutateAsync({
+        account_id: accountId,
+        program_id: programId,
+        type: transactionType,
+        quantity:
+          transactionType === 'VENDA' || transactionType === 'USO' || transactionType === 'TRANSF_SAIDA' || transactionType === 'EXPIROU'
+            ? -qty
+            : qty,
+        total_cost:
+          (transactionType === 'COMPRA' || transactionType === 'TRANSF_ENTRADA' || transactionType === 'BONUS')
+            ? calculatedTotal
+            : null,
+        sale_price:
+          transactionType === 'VENDA'
+            ? calculatedTotal
+            : null,
+        transaction_date: transactionDate,
+        expiration_date: expirationDate || null,
+        notes: notes || null,
+        supplier_id: supplierId || null,
+        client_id: clientId || null, // client_id (Passageiro) para a transação
+        user_id: user.id,
+      });
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+      // 2. CONTAS A PAGAR (SE FOR COMPRA)
+      if (transactionType === 'COMPRA') {
+        const payable =
+          await createPayable.mutateAsync({
+            transaction_id: transaction.id,
+            credit_card_id: useCreditCard
+              ? selectedCardId
+              : null,
+            description: 'Compra de Milhas', // Melhor seria gerar descrição automática aqui
+            total_amount: calculatedTotal,
+            installments: Number(installmentCount),
+            user_id: user.id,
+          });
 
-          {/* CONTA */}
-          <div>
-            <Label>Conta *</Label>
-            <Input
-              value={searchConta}
-              onChange={e => setSearchConta(e.target.value)}
-              placeholder="Buscar conta"
-            />
-            {searchConta && (
-              <div className="border rounded max-h-40 overflow-y-auto">
-                {(contas ?? [])
-                  .filter(c =>
-                    c.name.toLowerCase().includes(searchConta.toLowerCase())
-                  )
-                  .map(c => (
-                    <div
-                      key={c.id}
-                      className="p-2 cursor-pointer hover:bg-muted"
-                      onClick={() => {
-                        setAccountId(c.id);
-                        setSearchConta(c.name);
-                      }}
-                    >
-                      {c.name}
-                    </div>
-                  ))}
-              </div>
-            )}
-          </div>
+        await createPayableInstallments.mutateAsync(
+          installmentPreview.map(i => ({
+            payable_id: payable.id,
+            installment_number: i.installmentNumber,
+            amount: i.amount,
+            due_date: format(i.dueDate, 'yyyy-MM-dd'),
+            status: 'pendente',
+            user_id: user.id,
+          })),
+        );
+      }
+      
+      // 3. CONTAS A RECEBER (SE FOR VENDA)
+      if (transactionType === 'VENDA' && useInstallments) {
+            const program = programas?.find(p => p.id === programId);
+            const passageiro = passageiros?.find(p => p.id === clientId);
+            const description = `Venda Milhas - ${program?.name || 'Programa'}${passageiro ? ` - ${passageiro.name}` : ''}`;
 
-          {/* PROGRAMA */}
-          <div>
-            <Label>Programa *</Label>
-            <Input
-              value={searchPrograma}
-              onChange={e => setSearchPrograma(e.target.value)}
-              placeholder="Buscar programa"
-            />
-            {searchPrograma && (
-              <div className="border rounded max-h-40 overflow-y-auto">
-                {(programas ?? [])
-                  .filter(p =>
-                    p.name.toLowerCase().includes(searchPrograma.toLowerCase())
-                  )
-                  .map(p => (
-                    <div
-                      key={p.id}
-                      className="p-2 cursor-pointer hover:bg-muted"
-                      onClick={() => {
-                        setProgramId(p.id);
-                        setSearchPrograma(p.name);
-                      }}
-                    >
-                      {p.name}
-                    </div>
-                  ))}
-              </div>
-            )}
-          </div>
+            const receivable = await createReceivable.mutateAsync({
+                transaction_id: transaction.id,
+                description,
+                total_amount: calculatedTotal,
+                installments: Number(saleInstallments),
+                user_id: user.id,
+            });
 
-          {/* PASSAGEIRO */}
-          {transactionType === 'VENDA' && (
-            <div>
-              <Label>Passageiro *</Label>
-              <Input
-                value={searchPassageiro}
-                onChange={e => setSearchPassageiro(e.target.value)}
-                placeholder="Buscar passageiro"
-              />
-              {searchPassageiro && (
-                <div className="border rounded max-h-40 overflow-y-auto">
-                  {(passageiros ?? [])
-                    .filter(p =>
-                      p.name.toLowerCase().includes(searchPassageiro.toLowerCase())
-                    )
-                    .map(p => (
-                      <div
-                        key={p.id}
-                        className="p-2 cursor-pointer hover:bg-muted"
-                        onClick={() => {
-                          setClientId(p.id);
-                          setSearchPassageiro(p.name);
-                        }}
-                      >
-                        {p.name}
-                      </div>
-                    ))}
-                </div>
-              )}
-              {cpfAlert && (
-                <div className="text-xs mt-2">{cpfAlert.msg}</div>
-              )}
+            await createReceivableInstallments.mutateAsync(
+                generateInstallments(
+                    calculatedTotal,
+                    Number(saleInstallments),
+                    new Date(firstReceiveDate)
+                ).map(i => ({
+                    receivable_id: receivable.id,
+                    installment_number: i.installmentNumber,
+                    amount: i.amount,
+                    due_date: format(i.dueDate, 'yyyy-MM-dd'),
+                    status: 'pendente',
+                    user_id: user.id,
+                }))
+            );
+        }
+
+
+      toast.success('Transação registrada');
+      onOpenChange(false);
+    } catch (err: any) {
+      toast.error(err.message || 'Erro');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <div className="flex justify-center p-8">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            {transactionType === 'COMPRA' && <TrendingDown className="h-5 w-5 text-destructive" />}
+            {transactionType === 'VENDA' && <TrendingUp className="h-5 w-5 text-success" />}
+            {transactionType === 'BONUS' && <Wallet className="h-5 w-5 text-primary" />}
+            Nova Transação
+        </DialogTitle>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+
+          {/* CONTA / PROGRAMA / PASSAGEIRO (Inputs de Busca e Seleção) */}
+          <div className="grid grid-cols-2 gap-4">
+            {/* BUSCA CONTA */}
+            <div>
+              <Label htmlFor="searchConta">Conta * ({accountId ? 'ID Selecionado' : 'Não Selecionado'})</Label>
+              <Input
+                id="searchConta"
+                value={searchConta}
+                onChange={e => setSearchConta(e.target.value)}
+                placeholder="Digite para buscar e selecionar a Conta"
+              />
+              {searchConta && (
+                <div className="border rounded max-h-40 overflow-y-auto mt-1 absolute z-10 w-[45%] bg-card shadow-lg">
+                  {(contas ?? [])
+                    .filter(c =>
+                      c.name.toLowerCase().includes(searchConta.toLowerCase())
+                    )
+                    .map(c => (
+                      <div
+                        key={c.id}
+                        className={`p-2 cursor-pointer hover:bg-primary/20 ${c.id === accountId ? 'bg-primary/30' : ''}`}
+                        onClick={() => {
+                          setAccountId(c.id);
+                          setSearchConta(c.name);
+                        }}
+                      >
+                        {c.name}
+                    </div>
+                  ))}
+              </div>
+            )}
+            {accountId && !searchConta.includes(contas?.find(c => c.id === accountId)?.name || 'x') && (
+              <p className="text-xs text-primary mt-1">Conta: {contas?.find(c => c.id === accountId)?.name || accountId}</p>
+            )}
+          </div>
+
+            {/* BUSCA PROGRAMA */}
+            <div>
+              <Label htmlFor="searchPrograma">Programa * ({programId ? 'ID Selecionado' : 'Não Selecionado'})</Label>
+              <Input
+                id="searchPrograma"
+                value={searchPrograma}
+                onChange={e => setSearchPrograma(e.target.value)}
+                placeholder="Digite para buscar e selecionar o Programa"
+              />
+              {searchPrograma && (
+                <div className="border rounded max-h-40 overflow-y-auto mt-1 absolute z-10 w-[45%] bg-card shadow-lg">
+                  {(programas ?? [])
+                    .filter(p =>
+                      p.name.toLowerCase().includes(searchPrograma.toLowerCase())
+                    )
+                    .map(p => (
+                      <div
+                        key={p.id}
+                        className={`p-2 cursor-pointer hover:bg-primary/20 ${p.id === programId ? 'bg-primary/30' : ''}`}
+                        onClick={() => {
+                          setProgramId(p.id);
+                          setSearchPrograma(p.name);
+                        }}
+                      >
+                        {p.name}
+                    </div>
+                  ))}
+              </div>
+            )}
+            {programId && !searchPrograma.includes(programas?.find(p => p.id === programId)?.name || 'x') && (
+              <p className="text-xs text-primary mt-1">Programa: {programas?.find(p => p.id === programId)?.name || programId}</p>
+            )}
+            </div>
+          </div>
+
+
+            {/* TIPO DE TRANSAÇÃO */}
+            <div className="space-y-2">
+                <Label>Tipo de Transação *</Label>
+                <Select value={transactionType} onValueChange={(v) => setTransactionType(v as TransactionType)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="COMPRA">Compra</SelectItem>
+                        <SelectItem value="VENDA">Venda</SelectItem>
+                        <SelectItem value="BONUS">Bônus</SelectItem>
+                        <SelectItem value="TRANSF_ENTRADA">Transferência Entrada</SelectItem>
+                        <SelectItem value="TRANSF_SAIDA">Transferência Saída</SelectItem>
+                        <SelectItem value="USO">Uso/Resgate</SelectItem>
+                        <SelectItem value="EXPIROU">Expirado</SelectItem>
+                    </SelectContent>
+                </Select>
             </div>
-          )}
 
-          <Separator />
 
-          <div className="flex justify-end gap-2 pt-4 border-t">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-            >
-              Cancelar
-            </Button>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Salvando…' : 'Registrar'}
-            </Button>
-          </div>
+          <Separator />
+            
+            {/* QUANTIDADE E CPM */}
+            <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                    <Label>Quantidade de Milhas *</Label>
+                    <Input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} placeholder="Ex: 50000" min="1" required />
+                </div>
+                <div className="space-y-2">
+                    <Label>{transactionType === 'VENDA' ? 'Valor Venda (Milheiro) *' : 'Valor Compra (Milheiro) *'}</Label>
+                    <div className="space-y-1">
+                        <Input type="number" step="0.01" value={pricePerThousand} onChange={e => setPricePerThousand(e.target.value)} placeholder="Ex: 17.50" min="0" required />
+                        <div className="text-right text-sm font-medium text-muted-foreground">Total: {formatCurrency(calculatedTotal)}</div>
+                    </div>
+                </div>
+            </div>
 
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
+            {/* PREVIEWS DE CPM E LUCRO */}
+            {transactionType === 'COMPRA' && purchaseCpm > 0 && (
+                <Card className="bg-muted/30">
+                    <CardContent className="pt-4">
+                        <div className="flex justify-between items-center">
+                            <span className="text-sm text-muted-foreground">CPM desta compra:</span>
+                            <Badge variant="secondary" className="text-lg">{formatCPM(purchaseCpm)}</Badge>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+            {transactionType === 'VENDA' && saleProfit && (
+                <Card className={saleProfit.profit >= 0 ? 'bg-success/10 border-success/30' : 'bg-destructive/10 border-destructive/30'}>
+                    <CardContent className="pt-4 space-y-2">
+                        <div className="flex items-center gap-2 mb-2">
+                            {saleProfit.profit >= 0 ? (<TrendingUp className="h-4 w-4 text-success" />) : (<AlertTriangle className="h-4 w-4 text-destructive" />)}
+                            <span className="font-medium">Previsão de Lucro</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-4 text-sm">
+                            <div><span className="text-muted-foreground">Lucro Total</span><div className={`font-bold ${saleProfit.profit >= 0 ? 'text-success' : 'text-destructive'}`}>{formatCurrency(saleProfit.profit)}</div></div>
+                            <div><span className="text-muted-foreground">Lucro/Milheiro</span><div className={`font-bold ${saleProfit.profitPerThousand >= 0 ? 'text-success' : 'text-destructive'}`}>{formatCPM(saleProfit.profitPerThousand)}</div></div>
+                            <div><span className="text-muted-foreground">Margem</span><div className={`font-bold ${saleProfit.margin >= 0 ? 'text-success' : 'text-destructive'}`}>{saleProfit.margin.toFixed(1)}%</div></div>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* DATAS */}
+            <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                    <Label>Data da Transação</Label>
+                    <Input type="date" value={transactionDate} onChange={e => setTransactionDate(e.target.value)} required />
+                </div>
+                {transactionType === 'COMPRA' && (
+                    <div className="space-y-2">
+                        <Label>Data de Expiração</Label>
+                        <Input type="date" value={expirationDate} onChange={e => setExpirationDate(e.target.value)} />
+                    </div>
+                )}
+            </div>
+
+            {/* SELETORES DE FORNECEDOR/CLIENTE (PASSAGEIRO) */}
+            {transactionType === 'COMPRA' && (
+                <div className="space-y-2">
+                    <Label>Fornecedor</Label>
+                    <Select value={supplierId} onValueChange={setSupplierId}>
+                        <SelectTrigger><SelectValue placeholder="Selecione (opcional)" /></SelectTrigger>
+                        <SelectContent>{suppliers?.map(sup => (<SelectItem key={sup.id} value={sup.id}>{sup.name}</SelectItem>))}</SelectContent>
+                    </Select>
+                </div>
+            )}
+            {transactionType === 'VENDA' && (
+                <div className="space-y-2">
+                    <Label htmlFor="searchPassageiro">Passageiro * ({clientId ? 'ID Selecionado' : 'Não Selecionado'})</Label>
+                    <Input
+                        id="searchPassageiro"
+                        value={searchPassageiro}
+                        onChange={e => setSearchPassageiro(e.target.value)}
+                        placeholder="Digite para buscar e selecionar o Passageiro"
+                    />
+                    {searchPassageiro && (
+                        <div className="border rounded max-h-40 overflow-y-auto mt-1 absolute z-10 w-full bg-card shadow-lg">
+                            {(passageiros ?? [])
+                                .filter(p =>
+                                    p.name.toLowerCase().includes(searchPassageiro.toLowerCase())
+                                )
+                                .map(p => (
+                                    <div
+                                        key={p.id}
+                                        className={`p-2 cursor-pointer hover:bg-primary/20 ${p.id === clientId ? 'bg-primary/30' : ''}`}
+                                        onClick={() => {
+                                            setClientId(p.id);
+                                            setSearchPassageiro(p.name);
+                                        }}
+                                    >
+                                        {p.name}
+                                    </div>
+                                ))}
+                        </div>
+                    )}
+                    {clientId && !searchPassageiro.includes(passageiros?.find(p => p.id === clientId)?.name || 'x') && (
+                        <p className="text-xs text-primary mt-1">Passageiro: {passageiros?.find(p => p.id === clientId)?.name || clientId}</p>
+                      )}
+
+                    {cpfAlert && (<div className={`text-xs p-2 rounded border mt-2 flex items-center gap-2 ${cpfAlert.type === 'error' ? 'bg-destructive/10 text-destructive border-destructive/20' : cpfAlert.type === 'success' ? 'bg-success/10 text-success border-success/20' : 'bg-warning/10 text-warning border-warning/20'}`}>{cpfAlert.type === 'error' && <AlertTriangle className="h-3 w-3" />}{cpfAlert.type === 'success' && <TrendingUp className="h-3 w-3" />}{cpfAlert.msg}</div>)}
+                </div>
+            )}
+
+            <Separator />
+
+            {/* ÁREA DE PAGAMENTO - COMPRAS */}
+            {transactionType === 'COMPRA' && (
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <Label className="flex items-center gap-2">
+                            <CreditCard className="h-4 w-4" />
+                            Usou Cartão de Crédito?
+                        </Label>
+                        <Switch checked={useCreditCard} onCheckedChange={setUseCreditCard} />
+                    </div>
+
+                    {useCreditCard ? (
+                        <div className="space-y-4 p-4 border rounded-lg bg-muted/20">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label>Cartão</Label>
+                                    <Select value={selectedCardId} onValueChange={setSelectedCardId}>
+                                        <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                                        <SelectContent>{creditCards?.map(card => (<SelectItem key={card.id} value={card.id}>{card.name} (Fecha: {card.closing_day})</SelectItem>))}</SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Parcelas</Label>
+                                    <Select value={installmentCount} onValueChange={setInstallmentCount}>
+                                        <SelectTrigger><SelectValue /></SelectTrigger>
+                                        <SelectContent>{Array.from({ length: 12 }, (_, i) => i + 1).map(n => (<SelectItem key={n} value={n.toString()}>{n}x de {formatCurrency(calculatedTotal / n)}</SelectItem>))}</SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="space-y-4 p-4 border rounded-lg bg-muted/10">
+                            <div className="space-y-2">
+                                <Label className="flex items-center justify-between">
+                                    Data do Pagamento (Vencimento)
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 text-xs text-primary"
+                                        onClick={() => setManualDueDate(format(new Date(), 'yyyy-MM-dd'))}
+                                    >
+                                        <CalendarCheck className="w-3 h-3 mr-1"/>
+                                        Pagar Hoje
+                                    </Button>
+                                </Label>
+                                <Input
+                                    type="date"
+                                    value={manualDueDate}
+                                    onChange={e => setManualDueDate(e.target.value)}
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                    Selecione quando o dinheiro sairá da conta.
+                                </p>
+                            </div>
+                        </div>
+                    )}
+
+                    {installmentPreview.length > 0 && (
+                        <Card>
+                            <CardContent className="pt-4">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                                    <span className="text-sm font-medium">Previsão de Pagamentos</span>
+                                </div>
+                                <div className="space-y-2 max-h-40 overflow-y-auto">
+                                    {installmentPreview.map(inst => (
+                                        <div key={inst.installmentNumber} className="flex justify-between items-center text-sm p-2 rounded bg-background">
+                                            <span className="text-muted-foreground">{inst.installmentNumber}ª parcela - {format(inst.dueDate, 'dd/MM/yyyy', { locale: ptBR })}</span>
+                                            <span className="font-medium">{formatCurrency(inst.amount)}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
+                </div>
+            )}
+
+            {/* VENDAS PARCELADAS (RECEBIMENTO) */}
+            {transactionType === 'VENDA' && (
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <Label className="flex items-center gap-2">
+                            <Calendar className="h-4 w-4" />
+                            Recebimento Parcelado?
+                        </Label>
+                        <Switch checked={useInstallments} onCheckedChange={setUseInstallments} />
+                    </div>
+                    {useInstallments && (
+                        <div className="space-y-4 p-4 border rounded-lg bg-muted/20">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label>Parcelas</Label>
+                                    <Select value={saleInstallments} onValueChange={setSaleInstallments}>
+                                        <SelectTrigger><SelectValue /></SelectTrigger>
+                                        <SelectContent>{Array.from({ length: 12 }, (_, i) => i + 1).map(n => (<SelectItem key={n} value={n.toString()}>{n}x de {formatCurrency(calculatedTotal / n)}</SelectItem>))}</SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Data do 1º Recebimento</Label>
+                                    <Input type="date" value={firstReceiveDate} onChange={e => setFirstReceiveDate(e.target.value)} />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            <div className="space-y-2">
+                <Label>Observações</Label>
+                <Input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Observações (opcional)" />
+            </div>
+
+
+          <div className="flex justify-end gap-2 pt-4 border-t">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={isSubmitting}
+            >
+              Cancelar
+            </Button>
+
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? 'Salvando…' : 'Registrar'}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
 }
