@@ -10,7 +10,7 @@ export const useAccounts = () =>
     queryFn: async () => {
       const { data, error } = await supabase
         .from('accounts')
-        .select('id, name, cpf, active, user_id') // CORREÇÃO: Campos CPF e active adicionados
+        .select('id, name, cpf, active, user_id')
         .order('name');
 
       if (error) return [];
@@ -27,7 +27,7 @@ export const usePrograms = () =>
     queryFn: async () => {
       const { data, error } = await supabase
         .from('programs')
-        .select('id, name, cpf_limit, active') // CORREÇÃO: Campos cpf_limit e active adicionados
+        .select('id, name, cpf_limit, active')
         .order('name');
 
       if (error) return [];
@@ -36,32 +36,25 @@ export const usePrograms = () =>
   });
 
 /* ======================================================
-   CLIENTS / PASSAGEIROS
+   PASSAGEIROS (BUSCA NA NOVA TABELA)
 ====================================================== */
 export const usePassageiros = () => {
   return useQuery({
-    queryKey: ['clients'],
+    queryKey: ['passengers'], // NOVO QUERY KEY
     queryFn: async () => {
-      console.log('FETCH CLIENTS');
-
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        console.warn('CLIENTS: usuário não logado');
-        return [];
-      }
+      if (!user) return [];
 
       const { data, error } = await supabase
-        .from('clients')
-        .select('id, name')
-        .eq('user_id', user.id) // 🔥 ESSENCIAL com RLS
+        .from('passengers') // MIGRADO PARA A TABELA CORRETA
+        .select('id, name, cpf, phone') // CORRIGIDO: Usa 'phone' e os campos essenciais
+        .eq('user_id', user.id)
         .order('name');
 
       if (error) {
-        console.error('CLIENTS ERROR:', error);
+        console.error('PASSAGEIROS ERROR:', error);
         return [];
       }
-
-      console.log('CLIENTS DATA:', data);
       return data ?? [];
     },
   });
@@ -69,7 +62,7 @@ export const usePassageiros = () => {
 
 
 /* ======================================================
-   CREDIT CARDS  🔥 (ERA O QUE FALTAVA)
+   CREDIT CARDS
 ====================================================== */
 export const useCreditCards = () =>
   useQuery({
@@ -77,6 +70,23 @@ export const useCreditCards = () =>
     queryFn: async () => {
       const { data, error } = await supabase
         .from('credit_cards')
+        .select('*')
+        .order('name');
+
+      if (error) return [];
+      return data ?? [];
+    },
+  });
+
+/* ======================================================
+   SUPPLIERS
+====================================================== */
+export const useSuppliers = () =>
+  useQuery({
+    queryKey: ['suppliers'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('suppliers')
         .select('*')
         .order('name');
 
@@ -136,8 +146,7 @@ export const useExpiringMiles = () =>
   });
 
 /* ======================================================
-/* ======================================================
-   PAYABLE INSTALLMENTS
+   PAYABLE INSTALLMENTS (COM CORREÇÃO DE DESCRIÇÃO)
 ====================================================== */
 export const usePayableInstallments = () =>
   useQuery({
@@ -151,7 +160,7 @@ export const usePayableInstallments = () =>
             description, 
             installments, 
             credit_card_id,
-            credit_cards ( name )
+            credit_cards ( name )
           )
         `) // CORREÇÃO: Busca o relacionamento para obter a descrição
         .order('due_date');
@@ -267,9 +276,8 @@ export const useCreateReceivableInstallments = () => {
   });
 };
 
-
 /* ======================================================
-   CREDIT CARDS - MUTATIONS (OBRIGATÓRIO)
+   CREDIT CARDS - MUTATIONS
 ====================================================== */
 
 export const useCreateCreditCard = () => {
@@ -332,13 +340,13 @@ export const useDeleteCreditCard = () => {
 };
 
 /* ======================================================
-   CRIAÇÃO DE PASSAGEIRO PARA UMA VENDA
+   CRIAÇÃO DE PASSAGEIRO (MUTATION)
 ====================================================== */
 interface NewPassenger {
   name: string;
   cpf: string;
   phone: string;
-  transaction_id: string; // ID da venda que este passageiro pertence
+  transaction_id: string; 
   user_id: string;
 }
 
@@ -353,22 +361,9 @@ export const useCreatePassenger = () => {
       if (error) throw error;
       return data;
     },
+    onSuccess: (data, variables, context) => {
+      // Invalida a lista de passageiros após a criação de um novo
+      useQueryClient().invalidateQueries({ queryKey: ['passengers'] });
+    }
   });
 };
-
-/* ======================================================
-   SUPPLIERS
-====================================================== */
-export const useSuppliers = () =>
-  useQuery({
-    queryKey: ['suppliers'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('suppliers')
-        .select('*') // Busca todos os campos da tabela de fornecedores
-        .order('name');
-
-      if (error) return [];
-      return data ?? [];
-    },
-  });
