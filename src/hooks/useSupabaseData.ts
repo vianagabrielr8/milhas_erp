@@ -1,6 +1,27 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
+// TRANSACTIONS (NECESSÁRIO PARA DataContext)
+export const useTransactions = () =>
+  useQuery({
+    queryKey: ['transactions'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('transactions')
+        .select(`
+          *,
+          programs(name),
+          accounts(name),
+          clients(name)
+        `)
+        .order('transaction_date', { ascending: false });
+
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+
 /* ===============================
    QUERIES
 ================================ */
