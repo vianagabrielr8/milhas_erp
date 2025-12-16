@@ -136,6 +136,7 @@ export const useExpiringMiles = () =>
   });
 
 /* ======================================================
+/* ======================================================
    PAYABLE INSTALLMENTS
 ====================================================== */
 export const usePayableInstallments = () =>
@@ -144,7 +145,15 @@ export const usePayableInstallments = () =>
     queryFn: async () => {
       const { data, error } = await supabase
         .from('payable_installments')
-        .select('*')
+        .select(`
+          *,
+          payables (
+            description, 
+            installments, 
+            credit_card_id,
+            credit_cards ( name )
+          )
+        `) // CORREÇÃO: Busca o relacionamento para obter a descrição
         .order('due_date');
 
       if (error) return [];
