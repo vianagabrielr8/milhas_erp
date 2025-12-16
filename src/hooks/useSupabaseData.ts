@@ -36,7 +36,7 @@ export const usePrograms = () =>
   });
 
 /* ======================================================
-   PASSAGEIROS (USANDO A TABELA CORRETA 'passengers')
+   PASSAGEIROS (BUSCA NA NOVA TABELA 'passengers')
 ====================================================== */
 export const usePassageiros = () => {
   return useQuery({
@@ -335,35 +335,4 @@ export const useDeleteCreditCard = () => {
       if (error) throw error;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['credit_cards'] });
-    },
-  });
-};
-
-/* ======================================================
-   CRIAÇÃO DE PASSAGEIRO (SEM CAMPO 'phone')
-====================================================== */
-interface NewPassenger {
-  name: string;
-  cpf: string;
-  user_id: string;
-}
-
-export const useCreatePassenger = () => {
-  const qc = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (passengerData: NewPassenger) => {
-      const { data, error } = await supabase
-        .from('passengers')
-        .insert(passengerData)
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['passengers'] });
-    }
-  });
-};
+      qc.invalidateQueries({ queryKey: ['credit
