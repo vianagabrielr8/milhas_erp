@@ -161,7 +161,7 @@ export function TransactionModal({ open, onOpenChange }: TransactionModalProps) 
         const balance = programas?.find(
             b => b.id === programId
         ); 
-        return (balance as any)?.avg_cpm || 0; // Usando programas que agora contêm dados completos
+        return (balance as any)?.avg_cpm || 0; 
     }, [programas, programId, accountId]);
 
     const saleProfit = useMemo(() => {
