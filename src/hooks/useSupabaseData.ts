@@ -287,3 +287,19 @@ export const useDeleteCreditCard = () => {
       qc.invalidateQueries({ queryKey: ['credit_cards'] }),
   });
 };
+// EXPIRING MILES (NECESSÁRIO PARA DASHBOARD)
+export const useExpiringMiles = () =>
+  useQuery({
+    queryKey: ['expiring_miles'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('expiring_miles')
+        .select('*')
+        .order('expiration_date', { ascending: true });
+
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+
