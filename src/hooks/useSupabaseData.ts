@@ -200,4 +200,46 @@ export const useCreateReceivable = () => {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['recei]()
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['receivable_installments'] }),
+  });
+};
+
+export const useCreateCreditCard = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: any) => {
+      const { data, error } = await supabase.from('credit_cards').insert(payload).select().single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['credit_cards'] }),
+  });
+};
+
+export const useUpdateCreditCard = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...payload }: any) => {
+      const { data, error } = await supabase
+        .from('credit_cards')
+        .update(payload)
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['credit_cards'] }),
+  });
+};
+
+export const useDeleteCreditCard = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('credit_cards').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['credit_cards'] }),
+  });
+};
