@@ -35,8 +35,6 @@ export const useAccounts = () => {
   return useQuery({
     queryKey: ['accounts'],
     queryFn: async () => {
-      console.log('FETCH ACCOUNTS');
-
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return [];
 
@@ -57,20 +55,18 @@ export const useAccounts = () => {
   });
 };
 
-// PROGRAMS (RLS OK — ESTE ERA O PROBLEMA)
+// PROGRAMS (RLS OK)
 export const usePrograms = () => {
   return useQuery({
     queryKey: ['programs'],
     queryFn: async () => {
-      console.log('FETCH PROGRAMS');
-
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return [];
 
       const { data, error } = await supabase
         .from('programs')
         .select('*')
-        .eq('user_id', user.id)   // 🔥 OBRIGATÓRIO
+        .eq('user_id', user.id)
         .eq('active', true)
         .order('name');
 
@@ -89,8 +85,6 @@ export const usePassageiros = () => {
   return useQuery({
     queryKey: ['passageiros'],
     queryFn: async () => {
-      console.log('FETCH PASSAGEIROS');
-
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return [];
 
@@ -175,6 +169,30 @@ export const useMilesBalance = () => {
           total_invested: summary?.total_invested || 0,
         };
       });
+    },
+  });
+};
+
+// EXPIRING MILES (🔥 FALTAVA — RESOLVE O BUILD)
+export const useExpiringMiles = () => {
+  return useQuery({
+    queryKey: ['expiring_miles'],
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return [];
+
+      const { data, error } = await supabase
+        .from('expiring_miles')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('expiration_date', { ascending: true });
+
+      if (error) {
+        console.error('EXPIRING MILES ERROR:', error);
+        return [];
+      }
+
+      return data;
     },
   });
 };
