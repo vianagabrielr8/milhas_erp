@@ -14,12 +14,29 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
-import { Cliente as PassageiroType } from '@/types'; 
+// Importação de tipo de Passageiro (ajustado para o novo modelo simplificado)
+interface PassageiroType {
+    id: string;
+    name: string;
+    cpf: string;
+    // Removidas referências a telefone/email/observacoes
+}
 import { toast } from 'sonner';
-// import { MascaraCPF } from '@/components/ui/mascara-cpf'; // Mantenha se for usar a máscara
+
+// Para mascaramento de CPF simples (se você não tiver uma biblioteca de máscara)
+const formatCPF = (value: string) => {
+    if (!value) return "";
+    value = value.replace(/\D/g, ''); // Remove tudo que não é dígito
+    value = value.replace(/(\d{3})(\d)/, "$1.$2");
+    value = value.replace(/(\d{3})(\d)/, "$1.$2");
+    value = value.replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+    return value;
+};
+
 
 const Passageiros = () => {
-  // CORREÇÃO: Puxa o array 'passageiros' e as funções 'add/update/deleteCliente' do contexto.
+  // NOTA: Presumo que addCliente/updateCliente/deleteCliente utilizam as mutações useCreate/Update/DeletePassenger
+  // injetadas via DataContext.
   const { passageiros, addCliente, updateCliente, deleteCliente } = useData();
 
   const [isOpen, setIsOpen] = useState(false);
@@ -40,62 +57,82 @@ const Passageiros = () => {
 
   const handleCpfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const rawCpf = e.target.value.replace(/\D/g, ''); 
-      setFormData({ ...formData, cpf: rawCpf });
+      // Limita a 11 dígitos para evitar problemas de formato na máscara
+      const limitedCpf = rawCpf.substring(0, 11);
+      setFormData({ ...formData, cpf: formatCPF(limitedCpf) });
   }
-
-  const handleSubmit = (e: React.FormEvent) => {
+  
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // VALIDAÇÃO: Nome e CPF obrigatórios
+    // VALIDAÇÃO
     if (!formData.nome.trim()) {
         toast.error('O nome é obrigatório.');
         return;
     }
-    if (!formData.cpf.trim() || formData.cpf.replace(/\D/g, '').length < 11) {
-        toast.error('O CPF completo é obrigatório.');
+    const rawCpf = formData.cpf.replace(/\D/g, '');
+    if (!rawCpf || rawCpf.length !== 11) {
+        toast.error('O CPF completo é obrigatório (11 dígitos).');
         return;
     }
 
+    // DADOS A SEREM SALVOS - APENAS NAME E CPF (LIMPO)
     const dataToSave = {
-        name: formData.nome, // Deve usar 'name' no Supabase
-        cpf: formData.cpf,
-        email: null, 
-        telefone: null,
-        observacoes: null,
-        active: true, // Use 'active' no Supabase
+        name: formData.nome, 
+        cpf: rawCpf, // Envia o CPF limpo
+        // active é definido no componente, se a coluna existir no banco
+        active: true, 
     }
 
-    if (editingPassageiro) {
-      updateCliente(editingPassageiro.id, dataToSave); 
-      toast.success('Passageiro atualizado com sucesso!');
-    } else {
-      addCliente(dataToSave);
-      toast.success('Passageiro cadastrado com sucesso!');
-    }
+    try {
+        if (editingPassageiro) {
+            // ATUALIZAÇÃO - AQUI você deve usar a mutação de UPDATE
+            // Presume-se que o addCliente/updateCliente do DataContext chama os hooks useCreate/UpdatePassenger
+            await updateCliente({ id: editingPassageiro.id, ...dataToSave }); 
+            toast.success('Passageiro atualizado com sucesso!');
 
-    setIsOpen(false);
-    resetForm();
+        } else {
+            // CRIAÇÃO
+            await addCliente(dataToSave);
+            toast.success('Passageiro cadastrado com sucesso!');
+        }
+        
+        setIsOpen(false);
+        resetForm();
+
+    } catch (error) {
+        console.error("Erro ao salvar passageiro:", error);
+        toast.error("Erro ao salvar passageiro. Verifique o console.");
+    }
   };
 
   const handleEdit = (passageiro: PassageiroType) => {
     setEditingPassageiro(passageiro);
     setFormData({
-      nome: passageiro.name || '', // Use 'name' se existir no PassageiroType
-      cpf: passageiro.cpf || '', 
+      nome: passageiro.name || '', 
+      cpf: formatCPF(passageiro.cpf || ''), // Aplica a máscara ao editar
     });
     setIsOpen(true);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm('Tem certeza que deseja excluir este passageiro?')) {
-      deleteCliente(id); 
-      toast.success('Passageiro excluído com sucesso!');
+        try {
+            await deleteCliente(id); // Chama a mutação de DELETE
+            toast.success('Passageiro excluído com sucesso!');
+        } catch (error) {
+            toast.error('Erro ao excluir. Tente novamente.');
+        }
     }
   };
 
   const columns = [
-    { key: 'name', header: 'Nome' }, // CORREÇÃO: Usar 'name'
-    { key: 'cpf', header: 'CPF' },
+    { key: 'name', header: 'Nome' }, 
+    { 
+        key: 'cpf', 
+        header: 'CPF',
+        render: (passageiro: PassageiroType) => formatCPF(passageiro.cpf) // Aplica a máscara na exibição
+    },
     {
       key: 'actions',
       header: 'Ações',
@@ -143,12 +180,12 @@ const Passageiros = () => {
                 <div className="space-y-2">
                   <Label>CPF</Label>
                   <Input
-                    type="text" 
+                    type="text" 
                     value={formData.cpf}
                     onChange={handleCpfChange}
                     placeholder="000.000.000-00"
                     required
-                    maxLength={14} 
+                    maxLength={14} 
                   />
                 </div>
                 
