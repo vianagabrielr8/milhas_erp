@@ -5,10 +5,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useTransactions, usePrograms, useAccounts } from '@/hooks/useSupabaseData';
+// Adicionado o useDeleteTransaction aqui
+import { useTransactions, usePrograms, useAccounts, useDeleteTransaction } from '@/hooks/useSupabaseData';
 import { formatCurrency, formatNumber } from '@/utils/financeLogic';
-import { ArrowLeft, History, ArrowUpRight, ArrowDownRight, Filter, Plus } from 'lucide-react';
-import { TransactionModal } from '@/components/transactions/TransactionModal'; // <--- Import Novo
+// Adicionado o Trash2 aqui
+import { ArrowLeft, History, ArrowUpRight, ArrowDownRight, Filter, Plus, Trash2 } from 'lucide-react';
+import { TransactionModal } from '@/components/transactions/TransactionModal';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -17,7 +19,10 @@ const ProgramDetails = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   
-  const [isModalOpen, setIsModalOpen] = useState(false); // <--- Controle do Modal
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // Hook de Exclusão
+  const deleteTransactionMutation = useDeleteTransaction();
 
   // Filtros
   const urlAccountId = searchParams.get('accountId') || 'all';
@@ -46,6 +51,12 @@ const ProgramDetails = () => {
     let url = `/estoque/${newProgramId}`;
     if (selectedAccount !== 'all') url += `?accountId=${selectedAccount}`;
     navigate(url);
+  };
+
+  const handleDelete = (transactionId: string) => {
+    if (confirm('Tem certeza que deseja excluir esta transação? O saldo será recalculado.')) {
+        deleteTransactionMutation.mutate(transactionId);
+    }
   };
 
   const currentProgramName = programs?.find(p => String(p.id) === String(id))?.name || 'Detalhes';
@@ -135,7 +146,6 @@ const ProgramDetails = () => {
                     </Select>
                 </div>
 
-                {/* BOTÃO MOVIDO PARA CÁ */}
                 <Button onClick={() => setIsModalOpen(true)} className="w-full sm:w-auto shadow-md">
                     <Plus className="h-4 w-4 mr-2" />
                     Nova Transação
@@ -208,6 +218,7 @@ const ProgramDetails = () => {
                                     <th className="px-6 py-3 font-medium text-right">Qtd</th>
                                     <th className="px-6 py-3 font-medium text-right">Custo Total</th>
                                     <th className="px-6 py-3 font-medium text-right">CPM Op.</th>
+                                    <th className="px-6 py-3 font-medium text-right">Ações</th> {/* Nova Coluna */}
                                 </tr>
                             </thead>
                             <tbody className="divide-y">
@@ -217,7 +228,7 @@ const ProgramDetails = () => {
                                     const accountName = accounts?.find(a => String(a.id) === String(t.account_id))?.name || '-';
                                     
                                     return (
-                                        <tr key={t.id} className="hover:bg-muted/5 transition-colors">
+                                        <tr key={t.id} className="hover:bg-muted/5 transition-colors group">
                                             <td className="px-6 py-4 whitespace-nowrap font-medium text-foreground">
                                                 {format(new Date(t.transaction_date), 'dd/MM/yyyy', { locale: ptBR })}
                                             </td>
@@ -238,6 +249,19 @@ const ProgramDetails = () => {
                                             <td className="px-6 py-4 text-right text-xs text-muted-foreground font-mono">
                                                 {t.total_cost > 0 ? formatCurrency(cpmOperacao) : '-'}
                                             </td>
+                                            {/* Botão de Excluir */}
+                                            <td className="px-6 py-4 text-right">
+                                                <Button 
+                                                    variant="ghost" 
+                                                    size="icon" 
+                                                    className="h-8 w-8 text-muted-foreground hover:text-destructive opacity-70 hover:opacity-100"
+                                                    onClick={() => handleDelete(t.id)}
+                                                    disabled={deleteTransactionMutation.isPending}
+                                                    title="Excluir Transação"
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            </td>
                                         </tr>
                                     );
                                 })}
@@ -249,7 +273,6 @@ const ProgramDetails = () => {
         </Card>
       </div>
 
-      {/* MODAL DE TRANSAÇÃO (Agora aqui dentro) */}
       <TransactionModal open={isModalOpen} onOpenChange={setIsModalOpen} />
       
     </MainLayout>
