@@ -8,11 +8,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Pencil, Trash2, User, UserPlus, X } from 'lucide-react';
-import { format } from 'date-fns';
+import { Plus, Pencil, Trash2, User, UserPlus, X, CalendarIcon } from 'lucide-react';
+import { format, addDays } from 'date-fns'; // Adicionado addDays
 import { toast } from 'sonner';
-
-// Importando os Hooks diretos do Supabase (A Correção)
 import { usePrograms, useAccounts, useSales, useCreateSale, useDeleteSale } from '@/hooks/useSupabaseData';
 
 interface PassageiroVenda {
@@ -22,12 +20,10 @@ interface PassageiroVenda {
 }
 
 const Vendas = () => {
-    // 1. Substituímos o useData pelos hooks individuais
     const { data: vendas = [], isLoading } = useSales();
     const { data: programas = [] } = usePrograms();
     const { data: contas = [] } = useAccounts();
     
-    // Hooks de ação (Criar e Deletar)
     const createSaleMutation = useCreateSale();
     const deleteSaleMutation = useDeleteSale();
 
@@ -44,6 +40,7 @@ const Vendas = () => {
         quantidade: '',
         valorUnitario: '',
         dataVenda: format(new Date(), 'yyyy-MM-dd'),
+        dataRecebimento: format(addDays(new Date(), 30), 'yyyy-MM-dd'), // NOVO: Padrão 30 dias
         status: 'pendente' as 'pendente' | 'recebido',
         observacoes: '',
     });
@@ -55,6 +52,7 @@ const Vendas = () => {
             quantidade: '',
             valorUnitario: '',
             dataVenda: format(new Date(), 'yyyy-MM-dd'),
+            dataRecebimento: format(addDays(new Date(), 30), 'yyyy-MM-dd'), // Reseta para +30 dias
             status: 'pendente',
             observacoes: '',
         });
@@ -78,7 +76,7 @@ const Vendas = () => {
         setPassageirosVenda(passageirosVenda.filter(p => p.id !== id));
     };
 
-const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         
         if (passageirosVenda.length === 0) {
@@ -88,7 +86,14 @@ const handleSubmit = async (e: React.FormEvent) => {
 
         const quantidade = parseInt(formData.quantidade);
         const valorUnitario = parseFloat(formData.valorUnitario);
+        // Garante que o cálculo aconteça
         const valorTotal = (quantidade / 1000) * valorUnitario;
+
+        if (isNaN(valorTotal) || valorTotal <= 0) {
+             if(!confirm("O valor total da venda é R$ 0,00. Deseja continuar sem gerar financeiro?")) {
+                 return;
+             }
+        }
 
         const vendaData = {
             programaId: formData.programaId,
@@ -97,10 +102,10 @@ const handleSubmit = async (e: React.FormEvent) => {
             valorUnitario,
             valorTotal,
             dataVenda: formData.dataVenda,
+            dataRecebimento: formData.dataRecebimento, // Enviando a data escolhida
             status: formData.status,
             observacoes: formData.observacoes,
-            passageiros: passageirosVenda,
-            // NOVO: Enviando dados do parcelamento para gerar o financeiro
+            passageiros: passageirosVenda, 
             parcelas: parcelas, 
         };
 
@@ -122,28 +127,48 @@ const handleSubmit = async (e: React.FormEvent) => {
         }
     };
 
+    // Atualiza a data de recebimento automaticamente se mudar a data da venda (opcional, UX)
+    const handleDateChange = (newDate: string) => {
+        setFormData(prev => ({
+            ...prev,
+            dataVenda: newDate,
+            // Se quiser forçar +30 dias sempre que muda a venda, descomente abaixo:
+            // dataRecebimento: format(addDays(new Date(newDate), 30), 'yyyy-MM-dd') 
+        }));
+    };
+
     const columns = [
         {
             key: 'dataVenda',
             header: 'Data',
-            render: (venda: any) => format(new Date(venda.date || venda.created_at), 'dd/MM/yyyy'),
+            render: (venda: any) => format(new Date(venda.transaction_date || venda.created_at), 'dd/MM/yyyy'),
         },
         {
             key: 'programaId',
             header: 'Programa',
-            // Busca o nome do programa na lista carregada
             render: (venda: any) => programas.find(p => p.id === venda.program_id)?.name || '-',
         },
         {
             key: 'contaId',
             header: 'Conta',
-            // Busca o nome da conta na lista carregada
             render: (venda: any) => contas.find(c => c.id === venda.account_id)?.name || '-',
+        },
+        {
+            key: 'passageiros',
+            header: 'Passageiros',
+            render: (venda: any) => {
+                // Tenta pegar da tabela (join) se disponível, ou do texto notes como fallback
+                if (venda.notes && venda.notes.includes('Passageiros:')) { // Fallback visual
+                     // Lógica de visualização rápida
+                     return <span className="text-xs text-muted-foreground">Ver detalhes</span>
+                }
+                return <span className="text-xs text-muted-foreground">{venda.description}</span>;
+            },
         },
         {
             key: 'quantidade',
             header: 'Qtd. Milhas',
-            render: (venda: any) => venda.quantity?.toLocaleString('pt-BR'),
+            render: (venda: any) => Math.abs(venda.quantity)?.toLocaleString('pt-BR'),
         },
         {
             key: 'valorTotal',
@@ -183,7 +208,6 @@ const handleSubmit = async (e: React.FormEvent) => {
                             </DialogHeader>
                             <form onSubmit={handleSubmit} className="space-y-4">
                                 
-                                {/* BLOCO 1: CONTA E PROGRAMA */}
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <Label>Programa</Label>
@@ -193,7 +217,6 @@ const handleSubmit = async (e: React.FormEvent) => {
                                         >
                                             <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                                             <SelectContent>
-                                                {/* Agora iteramos sobre 'programas' vindo do Supabase */}
                                                 {programas?.map((programa: any) => (
                                                     <SelectItem key={programa.id} value={programa.id}>
                                                         {programa.name}
@@ -220,7 +243,7 @@ const handleSubmit = async (e: React.FormEvent) => {
                                     </div>
                                 </div>
                                 
-                                {/* BLOCO 2: PASSAGEIROS */}
+                                {/* Passageiros */}
                                 <div className="space-y-3 p-4 border rounded-lg bg-muted/10">
                                     <Label className="text-base font-semibold flex items-center gap-2">
                                         <User className="h-4 w-4" /> Cadastro de Passageiros
@@ -271,8 +294,6 @@ const handleSubmit = async (e: React.FormEvent) => {
                                     </div>
                                 </div>
 
-
-                                {/* BLOCO 3: QUANTIDADE E VALOR */}
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <Label>Quantidade de Milhas</Label>
@@ -297,23 +318,37 @@ const handleSubmit = async (e: React.FormEvent) => {
                                     </div>
                                 </div>
 
-                                {/* BLOCO 4: DATA E STATUS */}
+                                {/* DATAS: VENDA E RECEBIMENTO */}
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <Label>Data da Venda</Label>
                                         <Input
                                             type="date"
                                             value={formData.dataVenda}
-                                            onChange={(e) => setFormData({ ...formData, dataVenda: e.target.value })}
+                                            onChange={(e) => handleDateChange(e.target.value)}
                                             required
+                                        />
+                                    </div>
+                                    {/* CAMPO NOVO: DATA DE RECEBIMENTO */}
+                                    <div className="space-y-2">
+                                        <Label className="flex items-center gap-2 text-emerald-500 font-medium">
+                                            <CalendarIcon className="h-4 w-4" />
+                                            Data Recebimento (1ª Parc)
+                                        </Label>
+                                        <Input
+                                            type="date"
+                                            value={formData.dataRecebimento}
+                                            onChange={(e) => setFormData({ ...formData, dataRecebimento: e.target.value })}
+                                            required
+                                            className="border-emerald-500/30 focus-visible:ring-emerald-500"
                                         />
                                     </div>
                                 </div>
 
-                                {/* BLOCO 5: PARCELAMENTO (Visual apenas por enquanto) */}
+                                {/* Parcelamento */}
                                 {formData.status === 'pendente' && !editingVenda && (
                                     <div className="space-y-2 border-t pt-4 bg-muted/20 p-3 rounded-lg">
-                                        <Label className="text-primary font-medium">Parcelamento (Visual)</Label>
+                                        <Label className="text-primary font-medium">Parcelamento</Label>
                                         <div className="flex gap-4 items-start">
                                             <div className="w-1/3 space-y-2">
                                                 <Label className="text-xs text-muted-foreground">Qtd Parcelas</Label>
@@ -325,11 +360,35 @@ const handleSubmit = async (e: React.FormEvent) => {
                                                     onChange={(e) => setParcelas(Number(e.target.value))}
                                                 />
                                             </div>
+                                            
+                                            {/* Previsão Visual */}
+                                            <div className="flex-1 text-sm text-muted-foreground bg-muted/50 p-3 rounded border">
+                                                <p className="font-medium mb-2 text-xs uppercase tracking-wide">Previsão</p>
+                                                <div className="max-h-32 overflow-y-auto text-xs space-y-2 pr-1 custom-scrollbar">
+                                                    {Array.from({ length: Math.max(1, parcelas) }).map((_, i) => {
+                                                        const dataBase = formData.dataRecebimento ? new Date(formData.dataRecebimento) : new Date();
+                                                        const dataPrevista = new Date(dataBase);
+                                                        // Se for a primeira, usa a data escolhida. Se for as próximas, soma meses
+                                                        if (i > 0) dataPrevista.setMonth(dataPrevista.getMonth() + i);
+                                                        
+                                                        const qtd = parseInt(formData.quantidade) || 0;
+                                                        const valUnit = parseFloat(formData.valorUnitario) || 0;
+                                                        const total = (qtd/1000) * valUnit;
+                                                        const valorParc = total / (parcelas || 1);
+                                                        
+                                                        return (
+                                                            <div key={i} className="flex justify-between items-center border-b border-border/50 pb-1 last:border-0 last:pb-0">
+                                                                <span className="font-medium">{i + 1}ª Parc: {dataPrevista.toLocaleDateString('pt-BR')}</span>
+                                                                <span className="text-primary">{valorParc.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 )}
                                 
-                                {/* BLOCO 6: OBSERVAÇÕES */}
                                 <div className="space-y-2">
                                     <Label>Observações</Label>
                                     <Input
