@@ -213,16 +213,23 @@ export const useDeleteTransaction = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      // Tenta limpar financeiro vinculado
-      const { data: receivables } = await supabase
-        .from('receivables')
-        .select('id')
-        .ilike('description', `%${id.slice(0, 8)}%`);
+      // 1. Tenta limpar financeiro vinculado (busca pelo ID da transação na coluna transaction_id ou descrição)
+      
+      // Opção A: Busca pelo ID direto (se a coluna transaction_id estiver preenchida)
+      const { data: recsById } = await supabase.from('receivables').select('id').eq('transaction_id', id);
+      if (recsById) {
+          for (const r of recsById) {
+              await supabase.from('receivable_installments').delete().eq('receivable_id', r.id);
+              await supabase.from('receivables').delete().eq('id', r.id);
+          }
+      }
 
-      if (receivables && receivables.length > 0) {
-          for (const rec of receivables) {
-              await supabase.from('receivable_installments').delete().eq('receivable_id', rec.id);
-              await supabase.from('receivables').delete().eq('id', rec.id);
+      // Opção B: Busca pela descrição (fallback antigo)
+      const { data: recsByDesc } = await supabase.from('receivables').select('id').ilike('description', `%${id.slice(0, 8)}%`);
+      if (recsByDesc) {
+          for (const r of recsByDesc) {
+              await supabase.from('receivable_installments').delete().eq('receivable_id', r.id);
+              await supabase.from('receivables').delete().eq('id', r.id);
           }
       }
 
@@ -305,10 +312,13 @@ export const useCreateSale = () => {
 
       // C. FINANCEIRO (CONTAS A RECEBER)
       if (valorTotalLimpo > 0) {
+        // Prepara o cabeçalho do financeiro
         const receivableData = {
           user_id: user?.id,
+          transaction_id: transaction.id, // <--- PREENCHENDO A COLUNA QUE ESTAVA NULL!
           description: `Venda de Milhas - Transação #${transaction.id.slice(0, 8)}`, 
           total_amount: valorTotalLimpo,
+          installments: newSale.parcelas || 1 // Salva o número de parcelas no pai também
         };
 
         const { data: receivable, error: recError } = await supabase
@@ -317,15 +327,17 @@ export const useCreateSale = () => {
           .select()
           .single();
 
-        if (!recError) {
+        if (recError) {
+            console.error("Erro ao criar receivables:", recError);
+            toast.error("Erro ao criar registro financeiro pai.");
+        } else {
+            // Gera Parcelas (Filhos)
             const numParcelas = newSale.parcelas || 1;
             const valorParcela = valorTotalLimpo / numParcelas;
             const installments = [];
 
             for (let i = 0; i < numParcelas; i++) {
-                // DATA DE RECEBIMENTO VINDA DO FRONT
                 const dataBase = new Date(newSale.dataRecebimento);
-                // Ajuste de timezone
                 const dataVencimento = new Date(dataBase.valueOf() + dataBase.getTimezoneOffset() * 60000);
                 
                 if (i > 0) {
@@ -334,7 +346,7 @@ export const useCreateSale = () => {
 
                 installments.push({
                     user_id: user?.id,
-                    receivable_id: receivable.id,
+                    receivable_id: receivable.id, // <--- O link com o pai
                     installment_number: i + 1,
                     amount: valorParcela,
                     due_date: dataVencimento.toISOString().split('T')[0],
@@ -342,7 +354,13 @@ export const useCreateSale = () => {
                 });
             }
 
-            await supabase.from('receivable_installments').insert(installments);
+            // Insere as parcelas e verifica erro
+            const { error: instError } = await supabase.from('receivable_installments').insert(installments);
+            
+            if (instError) {
+                console.error("Erro ao criar parcelas:", instError);
+                toast.error("Erro ao gerar parcelas do financeiro.");
+            }
         }
       }
 
@@ -365,17 +383,25 @@ export const useDeleteSale = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { data: receivables } = await supabase
-        .from('receivables')
-        .select('id')
-        .ilike('description', `%${id.slice(0, 8)}%`);
-
+      // Deleta primeiro o financeiro vinculado pelo ID da transação
+      const { data: receivables } = await supabase.from('receivables').select('id').eq('transaction_id', id);
+      
       if (receivables && receivables.length > 0) {
           for (const rec of receivables) {
               await supabase.from('receivable_installments').delete().eq('receivable_id', rec.id);
               await supabase.from('receivables').delete().eq('id', rec.id);
           }
+      } else {
+          // Fallback para descrição antiga
+          const { data: recsByDesc } = await supabase.from('receivables').select('id').ilike('description', `%${id.slice(0, 8)}%`);
+          if (recsByDesc) {
+             for (const r of recsByDesc) {
+                 await supabase.from('receivable_installments').delete().eq('receivable_id', r.id);
+                 await supabase.from('receivables').delete().eq('id', r.id);
+             }
+          }
       }
+      
       const { error } = await supabase.from('transactions').delete().eq('id', id);
       if (error) throw error;
     },
@@ -385,7 +411,7 @@ export const useDeleteSale = () => {
       queryClient.invalidateQueries({ queryKey: ['miles_balance'] });
       queryClient.invalidateQueries({ queryKey: ['receivable_installments'] }); 
       queryClient.invalidateQueries({ queryKey: ['passengers_with_transactions'] }); 
-      toast.success('Venda excluída!');
+      toast.success('Venda e dados excluídos!');
     },
     onError: (error: any) => toast.error(`Erro ao excluir: ${error.message}`)
   });
@@ -414,11 +440,11 @@ export const usePayableInstallments = () =>
     },
   });
 
-// AQUI ESTAVA O PROBLEMA: AGORA ELE BUSCA A DESCRIÇÃO DO PAI
 export const useReceivableInstallments = () =>
   useQuery({
     queryKey: ['receivable_installments'],
     queryFn: async () => {
+      // Busca a parcela E os dados do pai (receivables) para ter a descrição
       const { data, error } = await supabase
         .from('receivable_installments')
         .select(`
