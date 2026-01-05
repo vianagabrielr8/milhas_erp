@@ -24,7 +24,7 @@ export const useSales = () => useQuery({
     queryFn: async () => (await supabase.from('transactions').select('*').eq('type', 'VENDA').order('transaction_date', { ascending: false })).data || [] 
 });
 
-// FINANCEIRO (RECEBER)
+// FINANCEIRO (RECEBER) - CORRIGIDO JOIN
 export const useReceivableInstallments = () => useQuery({
     queryKey: ['receivable_installments'],
     queryFn: async () => {
@@ -42,9 +42,9 @@ export const usePayableInstallments = () => useQuery({
     },
 });
 
-/* --- ESCRITA (CRIAÇÃO/EDIÇÃO/EXCLUSÃO) --- */
+/* --- ESCRITA --- */
 
-// 1. CRIAR VENDA (Completa)
+// 1. CRIAR VENDA (Status 'PENDENTE' agora funciona pois mudamos o banco para TEXTO)
 export const useCreateSale = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -83,7 +83,7 @@ export const useCreateSale = () => {
           .insert({
               user_id: user?.id,
               transaction_id: transaction.id,
-              description: `Venda de Milhas - Transação #${transaction.id.slice(0, 8)}`,
+              description: `Venda de Milhas - Transação #${transaction.id.slice(0, 8)}`, 
               total_amount: valorTotalLimpo,
               installments: newSale.parcelas || 1
           }).select().single();
@@ -104,7 +104,7 @@ export const useCreateSale = () => {
                     installment_number: i + 1,
                     amount: valorParcela,
                     due_date: dataVencimento.toISOString().split('T')[0],
-                    status: 'PENDENTE'
+                    status: 'PENDENTE' // Banco agora aceita texto livre!
                 });
             }
             await supabase.from('receivable_installments').insert(installments);
@@ -116,7 +116,6 @@ export const useCreateSale = () => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['miles_balance'] });
       queryClient.invalidateQueries({ queryKey: ['receivable_installments'] });
-      queryClient.invalidateQueries({ queryKey: ['passengers'] });
       queryClient.invalidateQueries({ queryKey: ['passengers_with_transactions'] });
       toast.success('Venda registrada!');
     },
@@ -124,7 +123,7 @@ export const useCreateSale = () => {
   });
 };
 
-// 2. EXCLUIR VENDA (Completa)
+// 2. EXCLUIR VENDA
 export const useDeleteSale = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -136,7 +135,7 @@ export const useDeleteSale = () => {
               await supabase.from('receivables').delete().eq('id', r.id);
           }
       }
-      // Fallback para descrição antiga
+      // Fallback
       const { data: recsDesc } = await supabase.from('receivables').select('id').ilike('description', `%${id.slice(0, 8)}%`);
       if (recsDesc) {
           for (const r of recsDesc) {
@@ -149,7 +148,6 @@ export const useDeleteSale = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['sales'] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      queryClient.invalidateQueries({ queryKey: ['miles_balance'] });
       queryClient.invalidateQueries({ queryKey: ['receivable_installments'] });
       queryClient.invalidateQueries({ queryKey: ['passengers_with_transactions'] });
       toast.success('Venda excluída!');
@@ -157,12 +155,12 @@ export const useDeleteSale = () => {
   });
 };
 
-// 3. OUTRAS MUTATIONS (Necessárias para o TransactionModal e Erro do Vercel)
+// 3. OUTRAS FUNÇÕES (PARA CORRIGIR ERRO DO VERCEL)
 export const useCreatePassenger = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (p: any) => { await supabase.from('passengers').insert(p); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['passengers'] }) })};
 export const useCreateTransaction = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (p: any) => { const safeP = { ...p, total_cost: parseCurrency(p.total_cost) }; await supabase.from('transactions').insert(safeP); }, onSuccess: () => { qc.invalidateQueries({ queryKey: ['transactions'] }); qc.invalidateQueries({ queryKey: ['miles_balance'] }); } })};
 export const useDeleteTransaction = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (id: string) => { await supabase.from('transactions').delete().eq('id', id); }, onSuccess: () => { qc.invalidateQueries({ queryKey: ['transactions'] }); qc.invalidateQueries({ queryKey: ['miles_balance'] }); } })};
 
-// *** AS FUNÇÕES QUE FALTAVAM (CORREÇÃO VERCEL) ***
+// AS FUNÇÕES QUE FALTAVAM
 export const useCreatePayable = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (p: any) => { await supabase.from('payables').insert(p); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['payable_installments'] }) })};
 export const useCreatePayableInstallments = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (items: any[]) => { await supabase.from('payable_installments').insert(items); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['payable_installments'] }) })};
 export const useCreateReceivable = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (p: any) => { await supabase.from('receivables').insert(p); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['receivable_installments'] }) })};
