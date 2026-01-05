@@ -32,7 +32,7 @@ export const usePrograms = () =>
   });
 
 /* ======================================================
-   2. PASSAGEIROS
+   2. PASSAGEIROS (LEITURA E CADASTRO AVULSO)
 ====================================================== */
 export const usePassageiros = () => {
   return useQuery({
@@ -197,7 +197,7 @@ export const useCreateTransaction = () => {
 };
 
 /* ======================================================
-   6. VENDAS (LÓGICA COMPLEXA DE ESTOQUE + FINANCEIRO)
+   6. VENDAS (ESTOQUE + FINANCEIRO + PASSAGEIROS)
 ====================================================== */
 export const useSales = () => {
   return useQuery({
@@ -229,11 +229,11 @@ export const useCreateSale = () => {
         program_id: newSale.programaId,
         account_id: newSale.contaId,
         type: 'VENDA',
-        quantity: quantidadeNegativa, // Negativo
+        quantity: quantidadeNegativa,
         total_cost: parseFloat(newSale.valorTotal),
         transaction_date: newSale.dataVenda,
         description: `Venda Milhas - ${newSale.passageiros?.length || 0} Passageiros`, 
-        notes: `${newSale.observacoes || ''} | Passageiros: ${newSale.passageiros?.map((p:any) => p.nome).join(', ')}`,
+        notes: `${newSale.observacoes || ''}`, // Nota limpa agora que temos tabela de passageiros
       };
 
       const { data: transaction, error: transError } = await supabase
@@ -244,7 +244,23 @@ export const useCreateSale = () => {
 
       if (transError) throw transError;
 
-      // 2. INTEGRAÇÃO FINANCEIRA (SÓ SE VALOR > 0)
+      // 2. SALVAR OS PASSAGEIROS NA TABELA 'PASSENGERS'
+      if (newSale.passageiros && newSale.passageiros.length > 0) {
+          const passageirosParaSalvar = newSale.passageiros.map((p: any) => ({
+              user_id: user?.id,
+              transaction_id: transaction.id, // Liga o passageiro a esta venda!
+              name: p.nome,
+              cpf: p.cpf
+          }));
+
+          const { error: passError } = await supabase
+              .from('passengers')
+              .insert(passageirosParaSalvar);
+          
+          if (passError) console.error("Erro ao salvar passageiros:", passError);
+      }
+
+      // 3. INTEGRAÇÃO FINANCEIRA (SÓ SE VALOR > 0)
       if (parseFloat(newSale.valorTotal) > 0) {
         
         // B. Criar a "Cabeça" do Contas a Receber
@@ -297,7 +313,8 @@ export const useCreateSale = () => {
       queryClient.invalidateQueries({ queryKey: ['sales'] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['miles_balance'] });
-      queryClient.invalidateQueries({ queryKey: ['receivable_installments'] }); // Atualiza Financeiro
+      queryClient.invalidateQueries({ queryKey: ['receivable_installments'] });
+      queryClient.invalidateQueries({ queryKey: ['passengers'] }); // Atualiza lista de passageiros
       toast.success('Venda e Financeiro registrados com sucesso!');
     },
     onError: (error: any) => toast.error(`Erro ao registrar venda: ${error.message}`)
