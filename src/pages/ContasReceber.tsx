@@ -21,29 +21,24 @@ const ContasReceber = () => {
   const queryClient = useQueryClient();
   const [mesSelecionado, setMesSelecionado] = useState(format(new Date(), 'yyyy-MM'));
   
-  // Estado Edição
   const [editingItem, setEditingItem] = useState<any>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editForm, setEditForm] = useState({ description: '', amount: '', due_date: '' });
 
   const { data: contasReceber } = useReceivableInstallments();
 
-  // --- AQUI ESTÁ A CORREÇÃO (Filtro por Texto) ---
+  // FILTRO SIMPLIFICADO (STRING MATCH) - Resolve o problema de sumir da tela
   const aReceberFiltrado = useMemo(() => {
     if (!contasReceber) return [];
-    
     return contasReceber.filter(c => {
-        // A data vem do banco como "2026-02-04"
-        // Pegamos só os 7 primeiros caracteres: "2026-02"
-        const mesVencimento = c.due_date.substring(0, 7);
-        // Comparamos com o mês selecionado no filtro
-        return mesVencimento === mesSelecionado;
+        if (!c.due_date) return false;
+        // Pega "2026-02" da data e compara com o filtro
+        return c.due_date.substring(0, 7) === mesSelecionado;
     });
   }, [contasReceber, mesSelecionado]);
 
   const totalReceber = aReceberFiltrado.reduce((acc, c) => acc + Number(c.amount), 0);
 
-  // --- AÇÕES ---
   const handleDelete = async (id: string) => {
     if (!confirm('Tem certeza que deseja excluir?')) return;
     try {
@@ -86,11 +81,10 @@ const ContasReceber = () => {
     }
   };
 
-  // Formata data visualmente sem alterar timezone
   const formatDateDisplay = (dateString: string) => {
       if (!dateString) return '-';
-      const [year, month, day] = dateString.split('-');
-      return `${day}/${month}/${year}`;
+      const parts = dateString.split('-');
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
   };
 
   return (
@@ -107,7 +101,6 @@ const ContasReceber = () => {
           </SelectTrigger>
           <SelectContent>
             {Array.from({ length: 13 }, (_, i) => {
-              // Mostra de 2 meses atrás até 10 meses pra frente
               const d = addMonths(subMonths(new Date(), 2), i);
               const valor = format(d, 'yyyy-MM');
               const label = format(d, 'MMMM yyyy', { locale: ptBR });
