@@ -5,13 +5,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useTransactions, useAccounts } from '@/hooks/useSupabaseData';
 import { Users, CalendarClock, CheckCircle, AlertCircle } from 'lucide-react';
 import { format, addYears, isAfter, startOfYear } from 'date-fns';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { useAccounts, usePrograms } from '@/hooks/useSupabaseData';
 
+// Regras Oficiais das Cias Aéreas
 const PROGRAM_RULES: Record<string, { limit: number; type: 'ROLLING' | 'CALENDAR' }> = {
-  'LATAM': { limit: 25, type: 'ROLLING' },
-  'SMILES': { limit: 25, type: 'CALENDAR' },
+  'LATAM': { limit: 25, type: 'ROLLING' }, // Renova 1 ano após o voo
+  'SMILES': { limit: 25, type: 'CALENDAR' }, // Renova 01/Jan
   'TUDOAZUL': { limit: 5, type: 'CALENDAR' },
   'AZUL': { limit: 5, type: 'CALENDAR' },
   'TAP': { limit: 10, type: 'CALENDAR' },
@@ -20,62 +23,80 @@ const PROGRAM_RULES: Record<string, { limit: number; type: 'ROLLING' | 'CALENDAR
 
 const Limites = () => {
   const { data: accounts } = useAccounts();
-  const { data: transactions } = useTransactions();
-  
+  const { data: programsList } = usePrograms();
   const [selectedAccount, setSelectedAccount] = useState<string>('all');
 
-  const salesTransactions = useMemo(() => {
-    if (!transactions) return [];
-    return transactions.filter(t => {
-      const isSale = t.type === 'VENDA';
-      const tAny = t as any; 
-      // Verifica se tem Nome ou CPF preenchido
-      const hasPassenger = tAny.buyer_name || tAny.buyer_cpf;
-      return isSale && hasPassenger;
-    });
-  }, [transactions]);
+  // 1. BUSCA INTELIGENTE: Traz passageiros JÁ com os dados da venda conectada
+  const { data: passengersData } = useQuery({
+    queryKey: ['passengers_with_transactions'],
+    queryFn: async () => {
+      // Busca passageiros e faz o "JOIN" com a tabela de transações para saber a data e o programa
+      const { data, error } = await supabase
+        .from('passengers')
+        .select(`
+          *,
+          transaction:transactions (
+            transaction_date,
+            program_id,
+            account_id,
+            type
+          )
+        `);
+      if (error) throw error;
+      return data;
+    },
+  });
 
-  const getLiberationDate = (dateStr: string, ruleType: 'ROLLING' | 'CALENDAR') => {
-    const date = new Date(dateStr);
-    if (ruleType === 'CALENDAR') {
-      return startOfYear(addYears(date, 1));
-    } else {
-      return addYears(date, 1);
-    }
-  };
-
+  // 2. CÁLCULO DOS LIMITES
   const limitStatus = useMemo(() => {
-    if (!accounts || !salesTransactions) return [];
+    if (!accounts || !passengersData || !programsList) return [];
 
     return accounts.map(account => {
-      const accountSales = salesTransactions.filter(t => t.account_id === account.id);
+      // Filtra passageiros que voaram com ESTA conta
+      const accountPassengers = passengersData.filter((p: any) => 
+        p.transaction?.account_id === account.id && 
+        p.transaction?.type === 'VENDA'
+      );
       
       const programsStatus = Object.entries(PROGRAM_RULES).map(([progKey, rule]) => {
-        const progSales = accountSales.filter(t => {
-            const pName = (t as any).program_name || ''; 
-            return pName.toUpperCase().includes(progKey);
-        });
+        // Encontra o ID do programa no banco (Ex: ID da "LATAM PASS")
+        // O progKey é só a chave da regra (Ex: "LATAM"), então buscamos quem tem esse nome
+        const programIds = programsList
+            .filter(p => p.name.toUpperCase().includes(progKey))
+            .map(p => p.id);
 
-        if (progSales.length === 0 && progKey !== 'LATAM' && progKey !== 'SMILES') return null;
+        // Filtra passageiros que voaram NESTE programa
+        const progPassengers = accountPassengers.filter((p: any) => 
+            programIds.includes(p.transaction?.program_id)
+        );
+
+        if (progPassengers.length === 0 && !['LATAM', 'SMILES'].includes(progKey)) return null;
 
         const uniqueBeneficiaries = new Map();
 
-        progSales.forEach(sale => {
-            const tAny = sale as any;
-            const identifier = tAny.buyer_cpf || tAny.buyer_name; // Prioridade para o identificador único
-            const name = tAny.buyer_name || 'Sem Nome';
+        progPassengers.forEach((p: any) => {
+            if (!p.transaction?.transaction_date) return;
 
-            if (!identifier) return;
+            // Calcula quando esse CPF libera a cota
+            let liberationDate;
+            const flightDate = new Date(p.transaction.transaction_date);
 
-            const liberationDate = getLiberationDate(sale.transaction_date, rule.type);
+            if (rule.type === 'CALENDAR') {
+                liberationDate = startOfYear(addYears(flightDate, 1)); // 01/Jan do ano seguinte
+            } else {
+                liberationDate = addYears(flightDate, 1); // 365 dias depois
+            }
+
+            // Se a data de liberação é FUTURA, então está ocupando cota!
             const isOccupied = isAfter(liberationDate, new Date());
 
             if (isOccupied) {
-                if (!uniqueBeneficiaries.has(identifier)) {
-                    uniqueBeneficiaries.set(identifier, {
-                        name: name,
-                        cpf: identifier,
-                        since: sale.transaction_date,
+                // Se esse CPF já foi contado, mantém a data mais longe (pior caso)
+                if (!uniqueBeneficiaries.has(p.cpf)) {
+                    uniqueBeneficiaries.set(p.cpf, {
+                        name: p.name,
+                        cpf: p.cpf,
+                        since: p.transaction.transaction_date,
                         freesAt: liberationDate,
                         ruleType: rule.type
                     });
@@ -103,7 +124,7 @@ const Limites = () => {
         programs: programsStatus
       };
     });
-  }, [accounts, salesTransactions]);
+  }, [accounts, passengersData, programsList]);
 
   const displayedStatus = useMemo(() => {
     if (selectedAccount === 'all') return limitStatus;
@@ -187,7 +208,7 @@ const Limites = () => {
                                             <span className="text-sm">Nenhum CPF consumindo cota.</span>
                                         </div>
                                     ) : (
-                                        <div className="max-h-[200px] overflow-y-auto pr-2 space-y-2">
+                                        <div className="max-h-[200px] overflow-y-auto pr-2 space-y-2 custom-scrollbar">
                                             {prog.beneficiaries.map((b: any, idx: number) => (
                                                 <div key={idx} className="flex flex-col text-sm p-2 bg-muted/30 border rounded hover:bg-muted/50 transition-colors">
                                                     <div className="flex justify-between items-center mb-1">
@@ -195,7 +216,7 @@ const Limites = () => {
                                                             {b.name}
                                                         </span>
                                                         <span className="text-[10px] bg-background border px-1.5 rounded text-muted-foreground">
-                                                            {b.cpf.length > 11 ? 'NOME' : b.cpf}
+                                                            {b.cpf}
                                                         </span>
                                                     </div>
                                                     <div className="flex justify-between items-center text-xs mt-1">
