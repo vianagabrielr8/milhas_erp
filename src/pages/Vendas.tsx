@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { DataTable } from '@/components/ui/data-table';
@@ -11,6 +11,9 @@ import { Plus, Trash2, User, UserPlus, X, CalendarIcon } from 'lucide-react';
 import { format, addDays } from 'date-fns';
 import { toast } from 'sonner';
 import { usePrograms, useAccounts, useSales, useCreateSale, useDeleteSale } from '@/hooks/useSupabaseData';
+
+// LISTA DE FILTRO: Só estas aparecerão no formulário de venda
+const AEREAS_PERMITIDAS = ['LATAM PASS', 'SMILES', 'TAP MILES&GO', 'TUDO AZUL'];
 
 interface PassageiroVenda {
     id: string;
@@ -27,6 +30,7 @@ const Vendas = () => {
     const deleteSaleMutation = useDeleteSale();
 
     const [isOpen, setIsOpen] = useState(false);
+    
     const [parcelas, setParcelas] = useState(1);
     const [passageirosVenda, setPassageirosVenda] = useState<PassageiroVenda[]>([]);
     const [novoPassageiro, setNovoPassageiro] = useState({ nome: '', cpf: '' });
@@ -41,6 +45,17 @@ const Vendas = () => {
         status: 'pendente' as 'pendente' | 'recebido',
         observacoes: '',
     });
+
+    // Filtra os programas para mostrar apenas as aéreas desejadas
+    const programasFiltrados = useMemo(() => {
+        if (!programas) return [];
+        return programas.filter(p => {
+            const nome = p.name.toUpperCase();
+            // Verifica se o nome do programa contém algum dos nomes permitidos
+            // (Usamos 'includes' para ser flexível caso esteja escrito "LATAM PASS (BR)" por exemplo)
+            return AEREAS_PERMITIDAS.some(aerea => nome.includes(aerea));
+        });
+    }, [programas]);
 
     const resetForm = () => {
         setFormData({
@@ -96,8 +111,8 @@ const Vendas = () => {
             programaId: formData.programaId,
             contaId: formData.contaId,
             quantidade,
-            valorUnitario, // Salva o valor corrigido
-            valorTotal,    // Salva o total calculado
+            valorUnitario, 
+            valorTotal,    
             dataVenda: formData.dataVenda,
             dataRecebimento: formData.dataRecebimento,
             status: formData.status,
@@ -118,6 +133,13 @@ const Vendas = () => {
         if (confirm('Tem certeza que deseja excluir esta venda?')) {
             deleteSaleMutation.mutate(id);
         }
+    };
+
+    const handleDateChange = (newDate: string) => {
+        setFormData(prev => ({
+            ...prev,
+            dataVenda: newDate,
+        }));
     };
 
     const columns = [
@@ -198,7 +220,8 @@ const Vendas = () => {
                                         >
                                             <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                                             <SelectContent>
-                                                {programas?.map((programa: any) => (
+                                                {/* AQUI ESTÁ O FILTRO APLICADO */}
+                                                {programasFiltrados.map((programa: any) => (
                                                     <SelectItem key={programa.id} value={programa.id}>
                                                         {programa.name}
                                                     </SelectItem>
@@ -305,11 +328,10 @@ const Vendas = () => {
                                         <Input
                                             type="date"
                                             value={formData.dataVenda}
-                                            onChange={(e) => setFormData({ ...formData, dataVenda: e.target.value })}
+                                            onChange={(e) => handleDateChange(e.target.value)}
                                             required
                                         />
                                     </div>
-                                    {/* CAMPO NOVO: DATA DE RECEBIMENTO */}
                                     <div className="space-y-2">
                                         <Label className="flex items-center gap-2 text-emerald-500 font-medium">
                                             <CalendarIcon className="h-4 w-4" />
