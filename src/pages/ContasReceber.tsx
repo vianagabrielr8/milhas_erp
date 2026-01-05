@@ -28,14 +28,15 @@ const ContasReceber = () => {
 
   const { data: contasReceber } = useReceivableInstallments();
 
-  // FILTRO ROBUSTO (Compara Strings YYYY-MM)
-  // Isso evita erros de fuso horário onde o dia 01 vira dia 31 do mês anterior
+  // --- AQUI ESTÁ A CORREÇÃO (Filtro por Texto) ---
   const aReceberFiltrado = useMemo(() => {
     if (!contasReceber) return [];
     
     return contasReceber.filter(c => {
-        // Pega os primeiros 7 caracteres da data (YYYY-MM)
+        // A data vem do banco como "2026-02-04"
+        // Pegamos só os 7 primeiros caracteres: "2026-02"
         const mesVencimento = c.due_date.substring(0, 7);
+        // Comparamos com o mês selecionado no filtro
         return mesVencimento === mesSelecionado;
     });
   }, [contasReceber, mesSelecionado]);
@@ -85,10 +86,9 @@ const ContasReceber = () => {
     }
   };
 
-  // Formata data para exibição (DD/MM/YYYY)
+  // Formata data visualmente sem alterar timezone
   const formatDateDisplay = (dateString: string) => {
       if (!dateString) return '-';
-      // Garante que não converta para UTC e perca um dia
       const [year, month, day] = dateString.split('-');
       return `${day}/${month}/${year}`;
   };
@@ -107,7 +107,7 @@ const ContasReceber = () => {
           </SelectTrigger>
           <SelectContent>
             {Array.from({ length: 13 }, (_, i) => {
-              // Mostra 2 meses atrás até 10 meses para frente
+              // Mostra de 2 meses atrás até 10 meses pra frente
               const d = addMonths(subMonths(new Date(), 2), i);
               const valor = format(d, 'yyyy-MM');
               const label = format(d, 'MMMM yyyy', { locale: ptBR });
