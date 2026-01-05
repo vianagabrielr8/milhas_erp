@@ -78,7 +78,7 @@ const Vendas = () => {
         setPassageirosVenda(passageirosVenda.filter(p => p.id !== id));
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
+const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         
         if (passageirosVenda.length === 0) {
@@ -88,7 +88,7 @@ const Vendas = () => {
 
         const quantidade = parseInt(formData.quantidade);
         const valorUnitario = parseFloat(formData.valorUnitario);
-        const valorTotal = (quantidade / 1000) * valorUnitario; // Cálculo correto para milheiro
+        const valorTotal = (quantidade / 1000) * valorUnitario;
 
         const vendaData = {
             programaId: formData.programaId,
@@ -99,14 +99,14 @@ const Vendas = () => {
             dataVenda: formData.dataVenda,
             status: formData.status,
             observacoes: formData.observacoes,
-            passageiros: passageirosVenda, 
+            passageiros: passageirosVenda,
+            // NOVO: Enviando dados do parcelamento para gerar o financeiro
+            parcelas: parcelas, 
         };
 
         if (editingVenda) {
             toast.info("Edição ainda não implementada no backend");
-            // Aqui você chamaria o updateSaleMutation futuramente
         } else {
-            // Chamando o Supabase para salvar
             createSaleMutation.mutate(vendaData, {
                 onSuccess: () => {
                     setIsOpen(false);
