@@ -417,3 +417,26 @@ export const useCreateReceivableInstallments = () => {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['receivable_installments'] }),
   });
 };
+
+// Adicione isso no final do arquivo src/hooks/useSupabaseData.ts
+
+export const useDeleteTransaction = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      // 1. Apaga a transação
+      const { error } = await supabase.from('transactions').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      // 2. Atualiza as listas para o item sumir da tela imediatamente
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['miles_balance'] });
+      queryClient.invalidateQueries({ queryKey: ['sales'] }); 
+      toast.success('Transação excluída com sucesso!');
+    },
+    onError: (error: any) => {
+      toast.error(`Erro ao excluir: ${error.message}`);
+    }
+  });
+};
