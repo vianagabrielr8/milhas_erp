@@ -4,8 +4,8 @@ import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useReceivableInstallments } from '@/hooks/useSupabaseData';
-import { formatCurrency, formatDate } from '@/utils/financeLogic';
-import { format, startOfMonth, endOfMonth, isWithinInterval, addMonths, subMonths } from 'date-fns';
+import { formatCurrency } from '@/utils/financeLogic';
+import { format, addMonths, subMonths, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Filter, Calendar, Pencil, Trash2, Save } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -28,19 +28,17 @@ const ContasReceber = () => {
 
   const { data: contasReceber } = useReceivableInstallments();
 
-  const { inicioMes, finalMes } = useMemo(() => {
-    const [ano, mes] = mesSelecionado.split('-');
-    const dataBase = new Date(parseInt(ano), parseInt(mes) - 1, 1);
-    dataBase.setHours(12, 0, 0, 0);
-    return { inicioMes: startOfMonth(dataBase), finalMes: endOfMonth(dataBase) };
-  }, [mesSelecionado]);
-
+  // FILTRO ROBUSTO (Compara Strings YYYY-MM)
+  // Isso evita erros de fuso horário onde o dia 01 vira dia 31 do mês anterior
   const aReceberFiltrado = useMemo(() => {
-    return contasReceber?.filter(c => {
-        const data = new Date(c.due_date.includes('T') ? c.due_date : `${c.due_date}T12:00:00`);
-        return isWithinInterval(data, { start: inicioMes, end: finalMes });
-    }) || [];
-  }, [contasReceber, inicioMes, finalMes]);
+    if (!contasReceber) return [];
+    
+    return contasReceber.filter(c => {
+        // Pega os primeiros 7 caracteres da data (YYYY-MM)
+        const mesVencimento = c.due_date.substring(0, 7);
+        return mesVencimento === mesSelecionado;
+    });
+  }, [contasReceber, mesSelecionado]);
 
   const totalReceber = aReceberFiltrado.reduce((acc, c) => acc + Number(c.amount), 0);
 
@@ -87,56 +85,91 @@ const ContasReceber = () => {
     }
   };
 
+  // Formata data para exibição (DD/MM/YYYY)
+  const formatDateDisplay = (dateString: string) => {
+      if (!dateString) return '-';
+      // Garante que não converta para UTC e perca um dia
+      const [year, month, day] = dateString.split('-');
+      return `${day}/${month}/${year}`;
+  };
+
   return (
     <MainLayout>
-      <PageHeader title="Contas a Receber" description="Previsão de entradas" />
+      <PageHeader title="Contas a Receber" description="Previsão de entradas financeiras" />
 
-      <div className="flex items-center gap-4 mb-6 bg-muted/20 p-4 rounded-lg border">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground"><Filter className="h-4 w-4" /> Período:</div>
+      <div className="flex items-center gap-4 mb-6 bg-muted/20 p-4 rounded-lg border shadow-sm">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground font-medium">
+            <Filter className="h-4 w-4" /> Período:
+        </div>
         <Select value={mesSelecionado} onValueChange={setMesSelecionado}>
-          <SelectTrigger className="w-[200px] bg-background"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="w-[220px] bg-background border-muted-foreground/20">
+            <SelectValue />
+          </SelectTrigger>
           <SelectContent>
             {Array.from({ length: 13 }, (_, i) => {
+              // Mostra 2 meses atrás até 10 meses para frente
               const d = addMonths(subMonths(new Date(), 2), i);
               const valor = format(d, 'yyyy-MM');
               const label = format(d, 'MMMM yyyy', { locale: ptBR });
-              return <SelectItem key={valor} value={valor}>{label.charAt(0).toUpperCase() + label.slice(1)}</SelectItem>;
+              return <SelectItem key={valor} value={valor} className="capitalize">{label}</SelectItem>;
             })}
           </SelectContent>
         </Select>
       </div>
 
-      <Card className="mb-8 border-l-4 border-l-success">
-        <CardHeader className="pb-2"><CardTitle className="text-success text-sm">Total a Receber</CardTitle></CardHeader>
-        <CardContent><div className="text-3xl font-bold">{formatCurrency(totalReceber)}</div></CardContent>
+      <Card className="mb-8 border-l-4 border-l-emerald-500 shadow-sm">
+        <CardHeader className="pb-2">
+            <CardTitle className="text-emerald-600 text-sm font-medium uppercase tracking-wide">
+                Total a Receber ({format(parseISO(mesSelecionado + '-01'), 'MMMM', { locale: ptBR })})
+            </CardTitle>
+        </CardHeader>
+        <CardContent>
+            <div className="text-4xl font-bold text-foreground">{formatCurrency(totalReceber)}</div>
+        </CardContent>
       </Card>
 
       <Card>
-        <CardContent className="pt-6">
+        <CardContent className="pt-0 p-0">
           {aReceberFiltrado.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">Nenhum recebimento para este mês.</div>
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                <Calendar className="h-10 w-10 mb-3 opacity-20" />
+                <p>Nenhum recebimento previsto para este mês.</p>
+            </div>
           ) : (
             <div className="space-y-0">
-              <div className="grid grid-cols-12 text-xs font-medium text-muted-foreground px-4 pb-3 border-b uppercase">
-                <div className="col-span-2">Data</div>
-                <div className="col-span-4">Descrição</div>
-                <div className="col-span-2 text-center">Parcela</div>
+              <div className="grid grid-cols-12 text-xs font-semibold text-muted-foreground px-4 py-3 border-b bg-muted/40 uppercase tracking-wider">
+                <div className="col-span-2">Vencimento</div>
+                <div className="col-span-5">Descrição</div>
+                <div className="col-span-1 text-center">Parc.</div>
                 <div className="col-span-2 text-right">Valor</div>
                 <div className="col-span-2 text-center">Ações</div>
               </div>
-              {aReceberFiltrado.map(conta => (
-                <div key={conta.id} className="grid grid-cols-12 items-center p-3 border-b hover:bg-muted/30">
-                  <div className="col-span-2 text-sm font-medium flex items-center gap-2">
-                    <Calendar className="h-4 w-4 text-muted-foreground" /> {formatDate(conta.due_date)}
+              {aReceberFiltrado.map((conta, idx) => (
+                <div key={conta.id} className={`grid grid-cols-12 items-center p-4 border-b hover:bg-muted/5 transition-colors ${idx % 2 === 0 ? 'bg-background' : 'bg-muted/5'}`}>
+                  <div className="col-span-2 text-sm font-medium flex items-center gap-2 text-foreground">
+                    <Calendar className="h-4 w-4 text-emerald-500" /> 
+                    {formatDateDisplay(conta.due_date)}
                   </div>
-                  <div className="col-span-4">
-                    <div className="text-sm font-medium">{conta.receivables?.description}</div>
+                  <div className="col-span-5 pr-4">
+                    <div className="text-sm font-medium text-foreground truncate" title={conta.receivables?.description}>
+                        {conta.receivables?.description || 'Venda sem descrição'}
+                    </div>
                   </div>
-                  <div className="col-span-2 text-center"><Badge variant="secondary">{conta.installment_number}/{conta.receivables?.installments}</Badge></div>
-                  <div className="col-span-2 text-right font-bold text-success">{formatCurrency(conta.amount)}</div>
+                  <div className="col-span-1 text-center">
+                    <Badge variant="outline" className="font-mono text-[10px]">
+                        {conta.installment_number}
+                    </Badge>
+                  </div>
+                  <div className="col-span-2 text-right font-bold text-emerald-600">
+                    {formatCurrency(conta.amount)}
+                  </div>
                   <div className="col-span-2 flex justify-center gap-1">
-                    <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-primary" onClick={() => openEditModal(conta)}><Pencil className="h-4 w-4" /></Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-destructive" onClick={() => handleDelete(conta.id)}><Trash2 className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-primary hover:bg-primary/10" onClick={() => openEditModal(conta)}>
+                        <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-destructive hover:bg-destructive/10" onClick={() => handleDelete(conta.id)}>
+                        <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
               ))}
@@ -148,14 +181,28 @@ const ContasReceber = () => {
       <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader><DialogTitle>Editar Recebimento</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2"><Label>Descrição</Label><Input value={editForm.description} onChange={e => setEditForm({...editForm, description: e.target.value})} /></div>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+                <Label>Descrição</Label>
+                <Input value={editForm.description} onChange={e => setEditForm({...editForm, description: e.target.value})} />
+            </div>
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2"><Label>Valor</Label><Input type="number" step="0.01" value={editForm.amount} onChange={e => setEditForm({...editForm, amount: e.target.value})} /></div>
-              <div className="space-y-2"><Label>Vencimento</Label><Input type="date" value={editForm.due_date} onChange={e => setEditForm({...editForm, due_date: e.target.value})} /></div>
+              <div className="space-y-2">
+                <Label>Valor</Label>
+                <Input type="number" step="0.01" value={editForm.amount} onChange={e => setEditForm({...editForm, amount: e.target.value})} />
+              </div>
+              <div className="space-y-2">
+                <Label>Vencimento</Label>
+                <Input type="date" value={editForm.due_date} onChange={e => setEditForm({...editForm, due_date: e.target.value})} />
+              </div>
             </div>
           </div>
-          <DialogFooter><Button variant="outline" onClick={() => setIsEditModalOpen(false)}>Cancelar</Button><Button onClick={handleSaveEdit}><Save className="h-4 w-4 mr-2" /> Salvar</Button></DialogFooter>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditModalOpen(false)}>Cancelar</Button>
+            <Button onClick={handleSaveEdit} className="gradient-primary">
+                <Save className="h-4 w-4 mr-2" /> Salvar
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </MainLayout>
