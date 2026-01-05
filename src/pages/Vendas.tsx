@@ -2,14 +2,13 @@ import { useState } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { DataTable } from '@/components/ui/data-table';
-import { StatusBadge } from '@/components/ui/status-badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Pencil, Trash2, User, UserPlus, X, CalendarIcon } from 'lucide-react';
-import { format, addDays } from 'date-fns'; // Adicionado addDays
+import { Plus, Trash2, User, UserPlus, X, CalendarIcon } from 'lucide-react';
+import { format, addDays } from 'date-fns';
 import { toast } from 'sonner';
 import { usePrograms, useAccounts, useSales, useCreateSale, useDeleteSale } from '@/hooks/useSupabaseData';
 
@@ -28,8 +27,6 @@ const Vendas = () => {
     const deleteSaleMutation = useDeleteSale();
 
     const [isOpen, setIsOpen] = useState(false);
-    const [editingVenda, setEditingVenda] = useState<any | null>(null);
-    
     const [parcelas, setParcelas] = useState(1);
     const [passageirosVenda, setPassageirosVenda] = useState<PassageiroVenda[]>([]);
     const [novoPassageiro, setNovoPassageiro] = useState({ nome: '', cpf: '' });
@@ -40,7 +37,7 @@ const Vendas = () => {
         quantidade: '',
         valorUnitario: '',
         dataVenda: format(new Date(), 'yyyy-MM-dd'),
-        dataRecebimento: format(addDays(new Date(), 30), 'yyyy-MM-dd'), // NOVO: Padrão 30 dias
+        dataRecebimento: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
         status: 'pendente' as 'pendente' | 'recebido',
         observacoes: '',
     });
@@ -52,11 +49,10 @@ const Vendas = () => {
             quantidade: '',
             valorUnitario: '',
             dataVenda: format(new Date(), 'yyyy-MM-dd'),
-            dataRecebimento: format(addDays(new Date(), 30), 'yyyy-MM-dd'), // Reseta para +30 dias
+            dataRecebimento: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
             status: 'pendente',
             observacoes: '',
         });
-        setEditingVenda(null);
         setParcelas(1);
         setPassageirosVenda([]);
         setNovoPassageiro({ nome: '', cpf: '' });
@@ -85,56 +81,43 @@ const Vendas = () => {
         }
 
         const quantidade = parseInt(formData.quantidade);
-        const valorUnitario = parseFloat(formData.valorUnitario);
-        // Garante que o cálculo aconteça
+        
+        // CORREÇÃO CRÍTICA: Troca vírgula por ponto ANTES de converter
+        const valUnitString = formData.valorUnitario.toString().replace(',', '.');
+        const valorUnitario = parseFloat(valUnitString);
+        
         const valorTotal = (quantidade / 1000) * valorUnitario;
 
         if (isNaN(valorTotal) || valorTotal <= 0) {
-             if(!confirm("O valor total da venda é R$ 0,00. Deseja continuar sem gerar financeiro?")) {
-                 return;
-             }
+             if(!confirm("O valor total da venda parece zerado. Deseja continuar mesmo assim?")) return;
         }
 
         const vendaData = {
             programaId: formData.programaId,
             contaId: formData.contaId,
             quantidade,
-            valorUnitario,
-            valorTotal,
+            valorUnitario, // Salva o valor corrigido
+            valorTotal,    // Salva o total calculado
             dataVenda: formData.dataVenda,
-            dataRecebimento: formData.dataRecebimento, // Enviando a data escolhida
+            dataRecebimento: formData.dataRecebimento,
             status: formData.status,
             observacoes: formData.observacoes,
             passageiros: passageirosVenda, 
             parcelas: parcelas, 
         };
 
-        if (editingVenda) {
-            toast.info("Edição ainda não implementada no backend");
-        } else {
-            createSaleMutation.mutate(vendaData, {
-                onSuccess: () => {
-                    setIsOpen(false);
-                    resetForm();
-                }
-            });
-        }
+        createSaleMutation.mutate(vendaData, {
+            onSuccess: () => {
+                setIsOpen(false);
+                resetForm();
+            }
+        });
     };
 
     const handleDelete = (id: string) => {
         if (confirm('Tem certeza que deseja excluir esta venda?')) {
             deleteSaleMutation.mutate(id);
         }
-    };
-
-    // Atualiza a data de recebimento automaticamente se mudar a data da venda (opcional, UX)
-    const handleDateChange = (newDate: string) => {
-        setFormData(prev => ({
-            ...prev,
-            dataVenda: newDate,
-            // Se quiser forçar +30 dias sempre que muda a venda, descomente abaixo:
-            // dataRecebimento: format(addDays(new Date(newDate), 30), 'yyyy-MM-dd') 
-        }));
     };
 
     const columns = [
@@ -157,12 +140,10 @@ const Vendas = () => {
             key: 'passageiros',
             header: 'Passageiros',
             render: (venda: any) => {
-                // Tenta pegar da tabela (join) se disponível, ou do texto notes como fallback
-                if (venda.notes && venda.notes.includes('Passageiros:')) { // Fallback visual
-                     // Lógica de visualização rápida
-                     return <span className="text-xs text-muted-foreground">Ver detalhes</span>
+                if (venda.description && venda.description.includes('Passageiros')) {
+                     return <span className="text-xs text-muted-foreground">{venda.description}</span>
                 }
-                return <span className="text-xs text-muted-foreground">{venda.description}</span>;
+                return <span className="text-xs text-muted-foreground">-</span>;
             },
         },
         {
@@ -204,7 +185,7 @@ const Vendas = () => {
                         </DialogTrigger>
                         <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
                             <DialogHeader>
-                                <DialogTitle>{editingVenda ? 'Editar Venda' : 'Nova Venda'}</DialogTitle>
+                                <DialogTitle>Nova Venda</DialogTitle>
                             </DialogHeader>
                             <form onSubmit={handleSubmit} className="space-y-4">
                                 
@@ -308,11 +289,10 @@ const Vendas = () => {
                                     <div className="space-y-2">
                                         <Label>Valor Unitário (R$/1000)</Label>
                                         <Input
-                                            type="number"
-                                            step="0.01"
+                                            type="text"
                                             value={formData.valorUnitario}
                                             onChange={(e) => setFormData({ ...formData, valorUnitario: e.target.value })}
-                                            placeholder="20.00"
+                                            placeholder="20,50"
                                             required
                                         />
                                     </div>
@@ -325,7 +305,7 @@ const Vendas = () => {
                                         <Input
                                             type="date"
                                             value={formData.dataVenda}
-                                            onChange={(e) => handleDateChange(e.target.value)}
+                                            onChange={(e) => setFormData({ ...formData, dataVenda: e.target.value })}
                                             required
                                         />
                                     </div>
@@ -333,7 +313,7 @@ const Vendas = () => {
                                     <div className="space-y-2">
                                         <Label className="flex items-center gap-2 text-emerald-500 font-medium">
                                             <CalendarIcon className="h-4 w-4" />
-                                            Data Recebimento (1ª Parc)
+                                            Recebimento (1ª Parc)
                                         </Label>
                                         <Input
                                             type="date"
@@ -346,7 +326,7 @@ const Vendas = () => {
                                 </div>
 
                                 {/* Parcelamento */}
-                                {formData.status === 'pendente' && !editingVenda && (
+                                {formData.status === 'pendente' && (
                                     <div className="space-y-2 border-t pt-4 bg-muted/20 p-3 rounded-lg">
                                         <Label className="text-primary font-medium">Parcelamento</Label>
                                         <div className="flex gap-4 items-start">
@@ -367,12 +347,14 @@ const Vendas = () => {
                                                 <div className="max-h-32 overflow-y-auto text-xs space-y-2 pr-1 custom-scrollbar">
                                                     {Array.from({ length: Math.max(1, parcelas) }).map((_, i) => {
                                                         const dataBase = formData.dataRecebimento ? new Date(formData.dataRecebimento) : new Date();
-                                                        const dataPrevista = new Date(dataBase);
-                                                        // Se for a primeira, usa a data escolhida. Se for as próximas, soma meses
+                                                        // Ajuste de timezone visual
+                                                        const dataPrevista = new Date(dataBase.valueOf() + dataBase.getTimezoneOffset() * 60000);
+                                                        
                                                         if (i > 0) dataPrevista.setMonth(dataPrevista.getMonth() + i);
                                                         
                                                         const qtd = parseInt(formData.quantidade) || 0;
-                                                        const valUnit = parseFloat(formData.valorUnitario) || 0;
+                                                        const valUnitString = formData.valorUnitario.toString().replace(',', '.');
+                                                        const valUnit = parseFloat(valUnitString) || 0;
                                                         const total = (qtd/1000) * valUnit;
                                                         const valorParc = total / (parcelas || 1);
                                                         
