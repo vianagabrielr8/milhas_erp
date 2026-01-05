@@ -2,8 +2,18 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
+// Função auxiliar para tratar números (R$)
+const parseCurrency = (value: any) => {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    // Troca vírgula por ponto e converte
+    return parseFloat(value.replace(',', '.'));
+  }
+  return 0;
+};
+
 /* ======================================================
-   1. CONTAS E PROGRAMAS (CADASTROS BÁSICOS)
+   1. CONTAS E PROGRAMAS
 ====================================================== */
 export const useAccounts = () =>
   useQuery({
@@ -32,7 +42,7 @@ export const usePrograms = () =>
   });
 
 /* ======================================================
-   2. PASSAGEIROS (LEITURA E CADASTRO AVULSO)
+   2. PASSAGEIROS
 ====================================================== */
 export const usePassageiros = () => {
   return useQuery({
@@ -90,7 +100,7 @@ export const useExpiringMiles = () =>
   });
 
 /* ======================================================
-   4. CARTÕES DE CRÉDITO (CRUD COMPLETO)
+   4. CARTÕES DE CRÉDITO
 ====================================================== */
 export const useCreditCards = () =>
   useQuery({
@@ -109,7 +119,7 @@ export const useCreateCreditCard = () => {
         name: newCard.nome,
         closing_day: parseInt(newCard.diaFechamento),
         due_day: parseInt(newCard.diaVencimento),
-        limit_amount: parseFloat(newCard.limite),
+        limit_amount: parseCurrency(newCard.limite),
         user_id: (await supabase.auth.getUser()).data.user?.id
       };
       const { data, error } = await supabase.from('credit_cards').insert(dbCard).select().single();
@@ -132,7 +142,7 @@ export const useUpdateCreditCard = () => {
         name: updates.nome,
         closing_day: parseInt(updates.diaFechamento),
         due_day: parseInt(updates.diaVencimento),
-        limit_amount: parseFloat(updates.limite),
+        limit_amount: parseCurrency(updates.limite),
       };
       const { data, error } = await supabase.from('credit_cards').update(dbCard).eq('id', id).select().single();
       if (error) throw error;
@@ -185,7 +195,13 @@ export const useCreateTransaction = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (payload: any) => {
-      const { data, error } = await supabase.from('transactions').insert(payload).select().single();
+      // Garante formatação de moeda na transação manual
+      const safePayload = {
+          ...payload,
+          total_cost: parseCurrency(payload.total_cost)
+      };
+      
+      const { data, error } = await supabase.from('transactions').insert(safePayload).select().single();
       if (error) throw error;
       return data;
     },
@@ -196,11 +212,23 @@ export const useCreateTransaction = () => {
   });
 };
 
-// --- NOVA FUNÇÃO PARA EXCLUIR TRANSAÇÕES (LIXEIRINHA) ---
 export const useDeleteTransaction = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
+      // Tenta limpar financeiro vinculado (pela descrição)
+      const { data: receivables } = await supabase
+        .from('receivables')
+        .select('id')
+        .ilike('description', `%${id.slice(0, 8)}%`);
+
+      if (receivables && receivables.length > 0) {
+          for (const rec of receivables) {
+              await supabase.from('receivable_installments').delete().eq('receivable_id', rec.id);
+              await supabase.from('receivables').delete().eq('id', rec.id);
+          }
+      }
+
       const { error } = await supabase.from('transactions').delete().eq('id', id);
       if (error) throw error;
     },
@@ -208,6 +236,8 @@ export const useDeleteTransaction = () => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['miles_balance'] });
       queryClient.invalidateQueries({ queryKey: ['sales'] }); 
+      queryClient.invalidateQueries({ queryKey: ['receivable_installments'] });
+      queryClient.invalidateQueries({ queryKey: ['passengers_with_transactions'] });
       toast.success('Transação excluída com sucesso!');
     },
     onError: (error: any) => {
@@ -217,7 +247,7 @@ export const useDeleteTransaction = () => {
 };
 
 /* ======================================================
-   6. VENDAS (ESTOQUE + FINANCEIRO + PASSAGEIROS)
+   6. VENDAS (A CORREÇÃO PRINCIPAL)
 ====================================================== */
 export const useSales = () => {
   return useQuery({
@@ -240,17 +270,18 @@ export const useCreateSale = () => {
     mutationFn: async (newSale: any) => {
       const { data: { user } } = await supabase.auth.getUser();
       
-      // 1. GARANTIR QUE A QUANTIDADE SEJA NEGATIVA (SAÍDA DE ESTOQUE)
+      // TRATAMENTO DE VALORES (Blinda contra vírgulas e erros)
+      const valorTotalLimpo = parseCurrency(newSale.valorTotal);
       const quantidadeNegativa = -1 * Math.abs(parseInt(newSale.quantidade));
 
-      // A. Prepara e Salva a Transação (Estoque)
+      // A. SALVAR VENDA
       const transactionData = {
         user_id: user?.id,
         program_id: newSale.programaId,
         account_id: newSale.contaId,
         type: 'VENDA',
         quantity: quantidadeNegativa,
-        total_cost: parseFloat(newSale.valorTotal),
+        total_cost: valorTotalLimpo,
         transaction_date: newSale.dataVenda,
         description: `Venda Milhas - ${newSale.passageiros?.length || 0} Passageiros`, 
         notes: `${newSale.observacoes || ''}`, 
@@ -264,11 +295,11 @@ export const useCreateSale = () => {
 
       if (transError) throw transError;
 
-      // 2. SALVAR OS PASSAGEIROS NA TABELA 'PASSENGERS'
+      // B. SALVAR PASSAGEIROS (VINCULANDO O ID DA TRANSAÇÃO)
       if (newSale.passageiros && newSale.passageiros.length > 0) {
           const passageirosParaSalvar = newSale.passageiros.map((p: any) => ({
               user_id: user?.id,
-              transaction_id: transaction.id, // Liga o passageiro a esta venda!
+              transaction_id: transaction.id, // <--- OBRIGATÓRIO PARA O LIMITE CPF FUNCIONAR
               name: p.nome,
               cpf: p.cpf
           }));
@@ -280,14 +311,12 @@ export const useCreateSale = () => {
           if (passError) console.error("Erro ao salvar passageiros:", passError);
       }
 
-      // 3. INTEGRAÇÃO FINANCEIRA (SÓ SE VALOR > 0)
-      if (parseFloat(newSale.valorTotal) > 0) {
-        
-        // B. Criar a "Cabeça" do Contas a Receber
+      // C. FINANCEIRO (CONTAS A RECEBER)
+      if (valorTotalLimpo > 0) {
         const receivableData = {
           user_id: user?.id,
           description: `Venda de Milhas - Transação #${transaction.id.slice(0, 8)}`, 
-          total_amount: parseFloat(newSale.valorTotal),
+          total_amount: valorTotalLimpo,
         };
 
         const { data: receivable, error: recError } = await supabase
@@ -297,19 +326,19 @@ export const useCreateSale = () => {
           .single();
 
         if (recError) {
-            console.error("Erro ao criar financeiro:", recError);
-            toast.error("Venda salva, mas erro ao gerar financeiro.");
+            toast.error("Erro ao gerar financeiro.");
         } else {
-            // C. Criar as Parcelas (Loop usando a DATA DE RECEBIMENTO)
+            // Gera Parcelas
             const numParcelas = newSale.parcelas || 1;
-            const valorParcela = parseFloat(newSale.valorTotal) / numParcelas;
+            const valorParcela = valorTotalLimpo / numParcelas;
             const installments = [];
 
             for (let i = 0; i < numParcelas; i++) {
-                // AQUI ESTÁ O AJUSTE: Usa dataRecebimento como base
-                const dataVencimento = new Date(newSale.dataRecebimento);
+                // Cria a data baseada no que veio do formulário
+                const dataBase = new Date(newSale.dataRecebimento);
+                // Ajusta timezone para evitar que "volte" um dia
+                const dataVencimento = new Date(dataBase.valueOf() + dataBase.getTimezoneOffset() * 60000);
                 
-                // Se for parcelas seguintes (i > 0), soma os meses
                 if (i > 0) {
                     dataVencimento.setMonth(dataVencimento.getMonth() + i);
                 }
@@ -324,24 +353,20 @@ export const useCreateSale = () => {
                 });
             }
 
-            const { error: instError } = await supabase
-                .from('receivable_installments')
-                .insert(installments);
-            
-            if (instError) console.error("Erro ao criar parcelas:", instError);
+            await supabase.from('receivable_installments').insert(installments);
         }
       }
 
       return transaction;
     },
     onSuccess: () => {
-      // Atualiza tudo para aparecer na hora
       queryClient.invalidateQueries({ queryKey: ['sales'] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['miles_balance'] });
       queryClient.invalidateQueries({ queryKey: ['receivable_installments'] });
       queryClient.invalidateQueries({ queryKey: ['passengers'] });
-      queryClient.invalidateQueries({ queryKey: ['passengers_with_transactions'] }); // Importante para o Limites CPF
+      // Atualiza o painel de limites
+      queryClient.invalidateQueries({ queryKey: ['passengers_with_transactions'] }); 
       toast.success('Venda registrada com sucesso!');
     },
     onError: (error: any) => toast.error(`Erro ao registrar venda: ${error.message}`)
@@ -352,15 +377,10 @@ export const useDeleteSale = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      // Deletar a transação já deleta os passageiros (cascade)
-      // Mas precisamos garantir que deletamos o financeiro se houver.
-      // O backend idealmente trataria isso, mas via front podemos tentar apagar pelo ID na descrição.
-      
-      // 1. Apagar Financeiro (Tentativa)
       const { data: receivables } = await supabase
         .from('receivables')
         .select('id')
-        .ilike('description', `%${id.slice(0, 8)}%`); // Busca parcial pelo ID
+        .ilike('description', `%${id.slice(0, 8)}%`);
 
       if (receivables && receivables.length > 0) {
           for (const rec of receivables) {
@@ -368,8 +388,8 @@ export const useDeleteSale = () => {
               await supabase.from('receivables').delete().eq('id', rec.id);
           }
       }
-
-      // 2. Apagar a Venda
+      
+      // A transação apaga os passageiros automaticamente (Cascade no banco)
       const { error } = await supabase.from('transactions').delete().eq('id', id);
       if (error) throw error;
     },
@@ -377,16 +397,16 @@ export const useDeleteSale = () => {
       queryClient.invalidateQueries({ queryKey: ['sales'] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['miles_balance'] });
-      queryClient.invalidateQueries({ queryKey: ['receivable_installments'] }); // Limpa financeiro da tela
+      queryClient.invalidateQueries({ queryKey: ['receivable_installments'] }); 
       queryClient.invalidateQueries({ queryKey: ['passengers_with_transactions'] }); // Limpa limites
-      toast.success('Venda e dados vinculados excluídos!');
+      toast.success('Venda e dados excluídos!');
     },
     onError: (error: any) => toast.error(`Erro ao excluir: ${error.message}`)
   });
 };
 
 /* ======================================================
-   7. FINANCEIRO (CONTAS A PAGAR E RECEBER)
+   7. FINANCEIRO (LEITURA)
 ====================================================== */
 export const usePayableInstallments = () =>
   useQuery({
