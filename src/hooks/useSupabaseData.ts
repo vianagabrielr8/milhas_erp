@@ -197,7 +197,7 @@ export const useCreateSale = () => {
         account_id: newSale.contaId,
         type: 'VENDA',
         quantity: parseInt(newSale.quantidade),
-        total_amount: parseFloat(newSale.valorTotal), // Seu banco parece usar total_amount ou total_cost? Verifique. Vou usar total_amount se baseando no padrão comum, mas pode ser total_cost.
+        total_cost: parseFloat(newSale.valorTotal), // Seu banco parece usar total_amount ou total_cost? Verifique. Vou usar total_amount se baseando no padrão comum, mas pode ser total_cost.
         transaction_date: newSale.dataVenda,
         description: `Venda Milhas - ${newSale.passageiros?.length || 0} Passageiros`, 
         notes: `${newSale.observacoes || ''} | Passageiros: ${newSale.passageiros?.map((p:any) => p.nome).join(', ')}`,
