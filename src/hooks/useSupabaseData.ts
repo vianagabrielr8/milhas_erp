@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
 /* ======================================================
-   ACCOUNTS & PROGRAMS
+   1. CONTAS E PROGRAMAS (CADASTROS BÁSICOS)
 ====================================================== */
 export const useAccounts = () =>
   useQuery({
@@ -32,7 +32,7 @@ export const usePrograms = () =>
   });
 
 /* ======================================================
-   PASSAGEIROS
+   2. PASSAGEIROS
 ====================================================== */
 export const usePassageiros = () => {
   return useQuery({
@@ -51,8 +51,20 @@ export const usePassageiros = () => {
   });
 };
 
+export const useCreatePassenger = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { name: string; cpf: string; user_id: string }) => {
+      const { data, error } = await supabase.from('passengers').insert(payload).select().single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['passengers'] }),
+  });
+};
+
 /* ======================================================
-   DASHBOARD & SALDOS
+   3. DASHBOARD & VISUALIZAÇÕES
 ====================================================== */
 export const useMilesBalance = () =>
   useQuery({
@@ -78,7 +90,7 @@ export const useExpiringMiles = () =>
   });
 
 /* ======================================================
-   RECURSOS OPERACIONAIS (CARTÕES, FORNECEDORES, TRANSAÇÕES)
+   4. CARTÕES DE CRÉDITO (CRUD COMPLETO)
 ====================================================== */
 export const useCreditCards = () =>
   useQuery({
@@ -89,7 +101,6 @@ export const useCreditCards = () =>
     },
   });
 
-// --- NOVOS HOOKS DE CARTÃO (PARA CORRIGIR O ERRO DE BUILD) ---
 export const useCreateCreditCard = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -149,6 +160,9 @@ export const useDeleteCreditCard = () => {
   });
 };
 
+/* ======================================================
+   5. FORNECEDORES E TRANSAÇÕES GERAIS
+====================================================== */
 export const useSuppliers = () =>
   useQuery({
     queryKey: ['suppliers'],
@@ -167,8 +181,23 @@ export const useTransactions = () =>
     },
   });
 
+export const useCreateTransaction = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: any) => {
+      const { data, error } = await supabase.from('transactions').insert(payload).select().single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['transactions'] });
+      qc.invalidateQueries({ queryKey: ['miles_balance'] });
+    },
+  });
+};
+
 /* ======================================================
-   VENDAS (NOVOS HOOKS ESPECÍFICOS)
+   6. VENDAS (LÓGICA COMPLEXA DE ESTOQUE + FINANCEIRO)
 ====================================================== */
 export const useSales = () => {
   return useQuery({
@@ -178,7 +207,7 @@ export const useSales = () => {
         .from('transactions')
         .select('*')
         .eq('type', 'VENDA') 
-        .order('transaction_date', { ascending: false }); // Ajustado para transaction_date que é o padrão do seu banco atual
+        .order('transaction_date', { ascending: false });
       if (error) throw error;
       return data ?? [];
     },
@@ -191,27 +220,85 @@ export const useCreateSale = () => {
     mutationFn: async (newSale: any) => {
       const { data: { user } } = await supabase.auth.getUser();
       
+      // 1. GARANTIR QUE A QUANTIDADE SEJA NEGATIVA (SAÍDA DE ESTOQUE)
+      const quantidadeNegativa = -1 * Math.abs(parseInt(newSale.quantidade));
+
+      // A. Prepara e Salva a Transação (Estoque)
       const transactionData = {
         user_id: user?.id,
         program_id: newSale.programaId,
         account_id: newSale.contaId,
         type: 'VENDA',
-        quantity: parseInt(newSale.quantidade),
-        total_cost: parseFloat(newSale.valorTotal), // Seu banco parece usar total_amount ou total_cost? Verifique. Vou usar total_amount se baseando no padrão comum, mas pode ser total_cost.
+        quantity: quantidadeNegativa, // Negativo
+        total_cost: parseFloat(newSale.valorTotal),
         transaction_date: newSale.dataVenda,
         description: `Venda Milhas - ${newSale.passageiros?.length || 0} Passageiros`, 
         notes: `${newSale.observacoes || ''} | Passageiros: ${newSale.passageiros?.map((p:any) => p.nome).join(', ')}`,
       };
 
-      const { data, error } = await supabase.from('transactions').insert(transactionData).select().single();
-      if (error) throw error;
-      return data;
+      const { data: transaction, error: transError } = await supabase
+        .from('transactions')
+        .insert(transactionData)
+        .select()
+        .single();
+
+      if (transError) throw transError;
+
+      // 2. INTEGRAÇÃO FINANCEIRA (SÓ SE VALOR > 0)
+      if (parseFloat(newSale.valorTotal) > 0) {
+        
+        // B. Criar a "Cabeça" do Contas a Receber
+        const receivableData = {
+          user_id: user?.id,
+          description: `Venda de Milhas - Transação #${transaction.id.slice(0, 8)}`, 
+          total_amount: parseFloat(newSale.valorTotal),
+        };
+
+        const { data: receivable, error: recError } = await supabase
+          .from('receivables')
+          .insert(receivableData)
+          .select()
+          .single();
+
+        if (recError) {
+            console.error("Erro ao criar financeiro:", recError);
+            toast.error("Venda salva, mas erro ao gerar financeiro.");
+        } else {
+            // C. Criar as Parcelas (Loop)
+            const numParcelas = newSale.parcelas || 1;
+            const valorParcela = parseFloat(newSale.valorTotal) / numParcelas;
+            const installments = [];
+
+            for (let i = 0; i < numParcelas; i++) {
+                const dataVencimento = new Date(newSale.dataVenda);
+                dataVencimento.setMonth(dataVencimento.getMonth() + (i + 1)); 
+
+                installments.push({
+                    user_id: user?.id,
+                    receivable_id: receivable.id,
+                    installment_number: i + 1,
+                    amount: valorParcela,
+                    due_date: dataVencimento.toISOString().split('T')[0],
+                    status: 'PENDENTE'
+                });
+            }
+
+            const { error: instError } = await supabase
+                .from('receivable_installments')
+                .insert(installments);
+            
+            if (instError) console.error("Erro ao criar parcelas:", instError);
+        }
+      }
+
+      return transaction;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['sales'] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['miles_balance'] });
-      toast.success('Venda registrada com sucesso!');
+      queryClient.invalidateQueries({ queryKey: ['receivable_installments'] }); // Atualiza Financeiro
+      toast.success('Venda e Financeiro registrados com sucesso!');
     },
     onError: (error: any) => toast.error(`Erro ao registrar venda: ${error.message}`)
   });
@@ -233,9 +320,8 @@ export const useDeleteSale = () => {
   });
 };
 
-
 /* ======================================================
-   FINANCEIRO (LEITURA)
+   7. FINANCEIRO (CONTAS A PAGAR E RECEBER)
 ====================================================== */
 export const usePayableInstallments = () =>
   useQuery({
@@ -268,36 +354,6 @@ export const useReceivableInstallments = () =>
       return data ?? [];
     },
   });
-
-/* ======================================================
-   MUTATIONS GENÉRICAS EXISTENTES
-====================================================== */
-export const useCreateTransaction = () => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (payload: any) => {
-      const { data, error } = await supabase.from('transactions').insert(payload).select().single();
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['transactions'] });
-      qc.invalidateQueries({ queryKey: ['miles_balance'] });
-    },
-  });
-};
-
-export const useCreatePassenger = () => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (payload: { name: string; cpf: string; user_id: string }) => {
-      const { data, error } = await supabase.from('passengers').insert(payload).select().single();
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['passengers'] }),
-  });
-};
 
 export const useCreatePayable = () => {
   const qc = useQueryClient();
