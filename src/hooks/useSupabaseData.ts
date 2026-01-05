@@ -6,7 +6,6 @@ import { toast } from 'sonner';
 const parseCurrency = (value: any) => {
   if (typeof value === 'number') return value;
   if (typeof value === 'string') {
-    // Troca vírgula por ponto e converte
     return parseFloat(value.replace(',', '.'));
   }
   return 0;
@@ -195,12 +194,10 @@ export const useCreateTransaction = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (payload: any) => {
-      // Garante formatação de moeda na transação manual
       const safePayload = {
           ...payload,
           total_cost: parseCurrency(payload.total_cost)
       };
-      
       const { data, error } = await supabase.from('transactions').insert(safePayload).select().single();
       if (error) throw error;
       return data;
@@ -216,7 +213,7 @@ export const useDeleteTransaction = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      // Tenta limpar financeiro vinculado (pela descrição)
+      // Tenta limpar financeiro vinculado
       const { data: receivables } = await supabase
         .from('receivables')
         .select('id')
@@ -247,7 +244,7 @@ export const useDeleteTransaction = () => {
 };
 
 /* ======================================================
-   6. VENDAS (A CORREÇÃO PRINCIPAL)
+   6. VENDAS (MOTOR PRINCIPAL)
 ====================================================== */
 export const useSales = () => {
   return useQuery({
@@ -270,7 +267,6 @@ export const useCreateSale = () => {
     mutationFn: async (newSale: any) => {
       const { data: { user } } = await supabase.auth.getUser();
       
-      // TRATAMENTO DE VALORES (Blinda contra vírgulas e erros)
       const valorTotalLimpo = parseCurrency(newSale.valorTotal);
       const quantidadeNegativa = -1 * Math.abs(parseInt(newSale.quantidade));
 
@@ -295,20 +291,16 @@ export const useCreateSale = () => {
 
       if (transError) throw transError;
 
-      // B. SALVAR PASSAGEIROS (VINCULANDO O ID DA TRANSAÇÃO)
+      // B. SALVAR PASSAGEIROS
       if (newSale.passageiros && newSale.passageiros.length > 0) {
           const passageirosParaSalvar = newSale.passageiros.map((p: any) => ({
               user_id: user?.id,
-              transaction_id: transaction.id, // <--- OBRIGATÓRIO PARA O LIMITE CPF FUNCIONAR
+              transaction_id: transaction.id, 
               name: p.nome,
               cpf: p.cpf
           }));
 
-          const { error: passError } = await supabase
-              .from('passengers')
-              .insert(passageirosParaSalvar);
-          
-          if (passError) console.error("Erro ao salvar passageiros:", passError);
+          await supabase.from('passengers').insert(passageirosParaSalvar);
       }
 
       // C. FINANCEIRO (CONTAS A RECEBER)
@@ -325,18 +317,15 @@ export const useCreateSale = () => {
           .select()
           .single();
 
-        if (recError) {
-            toast.error("Erro ao gerar financeiro.");
-        } else {
-            // Gera Parcelas
+        if (!recError) {
             const numParcelas = newSale.parcelas || 1;
             const valorParcela = valorTotalLimpo / numParcelas;
             const installments = [];
 
             for (let i = 0; i < numParcelas; i++) {
-                // Cria a data baseada no que veio do formulário
+                // DATA DE RECEBIMENTO VINDA DO FRONT
                 const dataBase = new Date(newSale.dataRecebimento);
-                // Ajusta timezone para evitar que "volte" um dia
+                // Ajuste de timezone
                 const dataVencimento = new Date(dataBase.valueOf() + dataBase.getTimezoneOffset() * 60000);
                 
                 if (i > 0) {
@@ -365,7 +354,6 @@ export const useCreateSale = () => {
       queryClient.invalidateQueries({ queryKey: ['miles_balance'] });
       queryClient.invalidateQueries({ queryKey: ['receivable_installments'] });
       queryClient.invalidateQueries({ queryKey: ['passengers'] });
-      // Atualiza o painel de limites
       queryClient.invalidateQueries({ queryKey: ['passengers_with_transactions'] }); 
       toast.success('Venda registrada com sucesso!');
     },
@@ -388,8 +376,6 @@ export const useDeleteSale = () => {
               await supabase.from('receivables').delete().eq('id', rec.id);
           }
       }
-      
-      // A transação apaga os passageiros automaticamente (Cascade no banco)
       const { error } = await supabase.from('transactions').delete().eq('id', id);
       if (error) throw error;
     },
@@ -398,15 +384,15 @@ export const useDeleteSale = () => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['miles_balance'] });
       queryClient.invalidateQueries({ queryKey: ['receivable_installments'] }); 
-      queryClient.invalidateQueries({ queryKey: ['passengers_with_transactions'] }); // Limpa limites
-      toast.success('Venda e dados excluídos!');
+      queryClient.invalidateQueries({ queryKey: ['passengers_with_transactions'] }); 
+      toast.success('Venda excluída!');
     },
     onError: (error: any) => toast.error(`Erro ao excluir: ${error.message}`)
   });
 };
 
 /* ======================================================
-   7. FINANCEIRO (LEITURA)
+   7. FINANCEIRO (LEITURA CORRIGIDA)
 ====================================================== */
 export const usePayableInstallments = () =>
   useQuery({
@@ -428,14 +414,26 @@ export const usePayableInstallments = () =>
     },
   });
 
+// AQUI ESTAVA O PROBLEMA: AGORA ELE BUSCA A DESCRIÇÃO DO PAI
 export const useReceivableInstallments = () =>
   useQuery({
     queryKey: ['receivable_installments'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('receivable_installments')
-        .select('*')
+        .select(`
+            *,
+            receivables (
+                description,
+                total_amount
+            )
+        `)
         .order('due_date');
+      
+      if (error) {
+          console.error("Erro ao buscar contas a receber:", error);
+          return [];
+      }
       return data ?? [];
     },
   });
