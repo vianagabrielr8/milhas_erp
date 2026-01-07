@@ -187,6 +187,39 @@ export const useDeleteSale = () => {
   });
 };
 
+// ... (mantenha todo o resto do arquivo igual)
+
+export const useUpdateTransaction = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...updates }: any) => {
+      // Garante formatação de moeda
+      const safeUpdates = { ...updates };
+      if (safeUpdates.total_cost) {
+          safeUpdates.total_cost = parseCurrency(safeUpdates.total_cost);
+      }
+      
+      const { error } = await supabase
+        .from('transactions')
+        .update(safeUpdates)
+        .eq('id', id);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['miles_balance'] });
+      queryClient.invalidateQueries({ queryKey: ['sales'] });
+      toast.success('Transação atualizada com sucesso!');
+    },
+    onError: (error: any) => {
+      toast.error(`Erro ao atualizar: ${error.message}`);
+    }
+  });
+};
+
+
+
 // 3. OUTRAS FUNÇÕES
 export const useCreatePassenger = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (p: any) => { await supabase.from('passengers').insert(p); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['passengers'] }) })};
 export const useCreateTransaction = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (p: any) => { const safeP = { ...p, total_cost: parseCurrency(p.total_cost) }; await supabase.from('transactions').insert(safeP); }, onSuccess: () => { qc.invalidateQueries({ queryKey: ['transactions'] }); qc.invalidateQueries({ queryKey: ['miles_balance'] }); } })};
