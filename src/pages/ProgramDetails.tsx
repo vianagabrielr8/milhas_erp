@@ -4,12 +4,13 @@ import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-// Adicionado o useDeleteTransaction aqui
-import { useTransactions, usePrograms, useAccounts, useDeleteTransaction } from '@/hooks/useSupabaseData';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { useTransactions, usePrograms, useAccounts, useDeleteTransaction, useUpdateTransaction } from '@/hooks/useSupabaseData';
 import { formatCurrency, formatNumber } from '@/utils/financeLogic';
-// Adicionado o Trash2 aqui
-import { ArrowLeft, History, ArrowUpRight, ArrowDownRight, Filter, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, History, ArrowUpRight, ArrowDownRight, Filter, Plus, Trash2, Pencil, Save } from 'lucide-react';
 import { TransactionModal } from '@/components/transactions/TransactionModal';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -19,10 +20,13 @@ const ProgramDetails = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false); // Modal de Nova Transação
+  const [isEditOpen, setIsEditOpen] = useState(false);   // Modal de Edição
+  const [editingTrans, setEditingTrans] = useState<any>(null); // Transação sendo editada
 
-  // Hook de Exclusão
+  // Hooks
   const deleteTransactionMutation = useDeleteTransaction();
+  const updateTransactionMutation = useUpdateTransaction();
 
   // Filtros
   const urlAccountId = searchParams.get('accountId') || 'all';
@@ -53,10 +57,36 @@ const ProgramDetails = () => {
     navigate(url);
   };
 
+  // --- AÇÕES ---
   const handleDelete = (transactionId: string) => {
     if (confirm('Tem certeza que deseja excluir esta transação? O saldo será recalculado.')) {
         deleteTransactionMutation.mutate(transactionId);
     }
+  };
+
+  const handleEditClick = (t: any) => {
+      setEditingTrans({
+          id: t.id,
+          transaction_date: t.transaction_date,
+          quantity: t.quantity,
+          total_cost: t.total_cost,
+          description: t.description || ''
+      });
+      setIsEditOpen(true);
+  };
+
+  const handleSaveEdit = () => {
+      if (!editingTrans) return;
+      
+      updateTransactionMutation.mutate({
+          id: editingTrans.id,
+          transaction_date: editingTrans.transaction_date,
+          quantity: parseInt(editingTrans.quantity),
+          total_cost: editingTrans.total_cost, // O Hook vai tratar a moeda
+          description: editingTrans.description
+      }, {
+          onSuccess: () => setIsEditOpen(false)
+      });
   };
 
   const currentProgramName = programs?.find(p => String(p.id) === String(id))?.name || 'Detalhes';
@@ -112,7 +142,6 @@ const ProgramDetails = () => {
                 </div>
             </div>
 
-            {/* AÇÕES: Filtros + BOTÃO NOVA TRANSAÇÃO */}
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
                 <div className="flex flex-col sm:flex-row items-center gap-3 bg-card border p-2 rounded-lg shadow-sm">
                     <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-2">
@@ -218,7 +247,7 @@ const ProgramDetails = () => {
                                     <th className="px-6 py-3 font-medium text-right">Qtd</th>
                                     <th className="px-6 py-3 font-medium text-right">Custo Total</th>
                                     <th className="px-6 py-3 font-medium text-right">CPM Op.</th>
-                                    <th className="px-6 py-3 font-medium text-right">Ações</th> {/* Nova Coluna */}
+                                    <th className="px-6 py-3 font-medium text-right">Ações</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y">
@@ -249,18 +278,30 @@ const ProgramDetails = () => {
                                             <td className="px-6 py-4 text-right text-xs text-muted-foreground font-mono">
                                                 {t.total_cost > 0 ? formatCurrency(cpmOperacao) : '-'}
                                             </td>
-                                            {/* Botão de Excluir */}
+                                            
+                                            {/* COLUNA DE AÇÕES (EDITAR + EXCLUIR) */}
                                             <td className="px-6 py-4 text-right">
-                                                <Button 
-                                                    variant="ghost" 
-                                                    size="icon" 
-                                                    className="h-8 w-8 text-muted-foreground hover:text-destructive opacity-70 hover:opacity-100"
-                                                    onClick={() => handleDelete(t.id)}
-                                                    disabled={deleteTransactionMutation.isPending}
-                                                    title="Excluir Transação"
-                                                >
-                                                    <Trash2 className="h-4 w-4" />
-                                                </Button>
+                                                <div className="flex justify-end gap-1">
+                                                    <Button 
+                                                        variant="ghost" 
+                                                        size="icon" 
+                                                        className="h-8 w-8 text-muted-foreground hover:text-primary"
+                                                        onClick={() => handleEditClick(t)}
+                                                        title="Editar Transação"
+                                                    >
+                                                        <Pencil className="h-4 w-4" />
+                                                    </Button>
+                                                    <Button 
+                                                        variant="ghost" 
+                                                        size="icon" 
+                                                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                                        onClick={() => handleDelete(t.id)}
+                                                        disabled={deleteTransactionMutation.isPending}
+                                                        title="Excluir Transação"
+                                                    >
+                                                        <Trash2 className="h-4 w-4" />
+                                                    </Button>
+                                                </div>
                                             </td>
                                         </tr>
                                     );
@@ -274,6 +315,57 @@ const ProgramDetails = () => {
       </div>
 
       <TransactionModal open={isModalOpen} onOpenChange={setIsModalOpen} />
+
+      {/* MODAL DE EDIÇÃO */}
+      <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+                <DialogTitle>Editar Transação</DialogTitle>
+            </DialogHeader>
+            {editingTrans && (
+                <div className="space-y-4 py-2">
+                    <div className="space-y-2">
+                        <Label>Data</Label>
+                        <Input 
+                            type="date" 
+                            value={editingTrans.transaction_date} 
+                            onChange={e => setEditingTrans({...editingTrans, transaction_date: e.target.value})} 
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <Label>Quantidade</Label>
+                        <Input 
+                            type="number" 
+                            value={editingTrans.quantity} 
+                            onChange={e => setEditingTrans({...editingTrans, quantity: e.target.value})} 
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <Label>Custo Total (R$)</Label>
+                        <Input 
+                            type="number" 
+                            step="0.01"
+                            value={editingTrans.total_cost} 
+                            onChange={e => setEditingTrans({...editingTrans, total_cost: e.target.value})} 
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <Label>Descrição</Label>
+                        <Input 
+                            value={editingTrans.description} 
+                            onChange={e => setEditingTrans({...editingTrans, description: e.target.value})} 
+                        />
+                    </div>
+                </div>
+            )}
+            <DialogFooter>
+                <Button variant="outline" onClick={() => setIsEditOpen(false)}>Cancelar</Button>
+                <Button onClick={handleSaveEdit} className="gradient-primary">
+                    <Save className="h-4 w-4 mr-2" /> Salvar Alterações
+                </Button>
+            </DialogFooter>
+        </DialogContent>
+      </Dialog>
       
     </MainLayout>
   );
