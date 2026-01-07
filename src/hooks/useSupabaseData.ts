@@ -24,7 +24,7 @@ export const useSales = () => useQuery({
     queryFn: async () => (await supabase.from('transactions').select('*').eq('type', 'VENDA').order('transaction_date', { ascending: false })).data || [] 
 });
 
-// FINANCEIRO (RECEBER) - CORRIGIDO JOIN
+// FINANCEIRO (RECEBER)
 export const useReceivableInstallments = () => useQuery({
     queryKey: ['receivable_installments'],
     queryFn: async () => {
@@ -44,15 +44,46 @@ export const usePayableInstallments = () => useQuery({
 
 /* --- ESCRITA --- */
 
-// 1. CRIAR VENDA (Status 'PENDENTE' agora funciona pois mudamos o banco para TEXTO)
+// 1. CRIAR VENDA (LÓGICA CORRIGIDA: CUSTO DE ESTOQUE vs RECEITA)
 export const useCreateSale = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (newSale: any) => {
       const { data: { user } } = await supabase.auth.getUser();
-      const valorTotalLimpo = parseCurrency(newSale.valorTotal);
-      const quantidadeNegativa = -1 * Math.abs(parseInt(newSale.quantidade));
+      
+      // Receita (O que entra no bolso)
+      const valorReceitaTotal = parseCurrency(newSale.valorTotal);
+      const qtdMilhas = Math.abs(parseInt(newSale.quantidade));
+      const quantidadeNegativa = -1 * qtdMilhas;
 
+      // --- PASSO A: CALCULAR O CUSTO (CPM) ATUAL ---
+      // Buscamos todas as entradas (compras/bonus) dessa conta e programa para saber o CPM médio atual
+      const { data: entradas } = await supabase
+        .from('transactions')
+        .select('quantity, total_cost')
+        .eq('user_id', user?.id)
+        .eq('account_id', newSale.contaId)
+        .eq('program_id', newSale.programaId)
+        .gt('quantity', 0); // Só entradas positivas contam para o CPM
+
+      let custoDoEstoque = 0;
+      let cpmAtual = 0;
+
+      if (entradas && entradas.length > 0) {
+          const totalQtdEntrada = entradas.reduce((acc, t) => acc + t.quantity, 0);
+          const totalCustoEntrada = entradas.reduce((acc, t) => acc + t.total_cost, 0);
+          
+          if (totalQtdEntrada > 0) {
+              cpmAtual = (totalCustoEntrada / totalQtdEntrada) * 1000;
+              // O custo que sai do estoque é: (Qtd Vendida / 1000) * CPM Atual
+              custoDoEstoque = (qtdMilhas / 1000) * cpmAtual;
+          }
+      }
+
+      // Se não tiver histórico, assume custo 0 ou usa o valor da venda como fallback (opcional, deixei 0 para não sujar CPM)
+      // Se preferir que assuma o valor da venda quando não tem estoque, avise.
+
+      // --- PASSO B: SALVAR NO ESTOQUE (Com o Custo Calculado, NÃO o preço de venda) ---
       const { data: transaction, error: transError } = await supabase.from('transactions')
         .insert({
             user_id: user?.id,
@@ -60,14 +91,15 @@ export const useCreateSale = () => {
             account_id: newSale.contaId,
             type: 'VENDA',
             quantity: quantidadeNegativa,
-            total_cost: valorTotalLimpo,
+            total_cost: custoDoEstoque, // <--- AQUI ESTÁ A CORREÇÃO (Grava o custo do ativo, não a receita)
             transaction_date: newSale.dataVenda,
             description: `Venda Milhas`,
-            notes: newSale.observacoes || ''
+            notes: `${newSale.observacoes || ''} | Vendido a: ${newSale.valorUnitario} | CPM Baixa: ${cpmAtual.toFixed(2)}`
         }).select().single();
 
       if (transError) throw transError;
 
+      // --- PASSO C: SALVAR PASSAGEIROS ---
       if (newSale.passageiros?.length > 0) {
           const passData = newSale.passageiros.map((p:any) => ({
               user_id: user?.id,
@@ -78,19 +110,20 @@ export const useCreateSale = () => {
           await supabase.from('passengers').insert(passData);
       }
 
-      if (valorTotalLimpo > 0) {
+      // --- PASSO D: SALVAR FINANCEIRO (Com o Valor da Receita) ---
+      if (valorReceitaTotal > 0) {
         const { data: receivable, error: recError } = await supabase.from('receivables')
           .insert({
               user_id: user?.id,
               transaction_id: transaction.id,
-              description: `Venda de Milhas - Transação #${transaction.id.slice(0, 8)}`, 
-              total_amount: valorTotalLimpo,
+              description: `Venda de Milhas - Transação #${transaction.id.slice(0, 8)}`,
+              total_amount: valorReceitaTotal, // <--- AQUI VAI O PREÇO DE VENDA (Lucro + Custo)
               installments: newSale.parcelas || 1
           }).select().single();
 
         if (!recError) {
             const numParcelas = newSale.parcelas || 1;
-            const valorParcela = valorTotalLimpo / numParcelas;
+            const valorParcela = valorReceitaTotal / numParcelas;
             const installments = [];
 
             for (let i = 0; i < numParcelas; i++) {
@@ -104,7 +137,7 @@ export const useCreateSale = () => {
                     installment_number: i + 1,
                     amount: valorParcela,
                     due_date: dataVencimento.toISOString().split('T')[0],
-                    status: 'PENDENTE' // Banco agora aceita texto livre!
+                    status: 'PENDENTE'
                 });
             }
             await supabase.from('receivable_installments').insert(installments);
@@ -135,7 +168,6 @@ export const useDeleteSale = () => {
               await supabase.from('receivables').delete().eq('id', r.id);
           }
       }
-      // Fallback
       const { data: recsDesc } = await supabase.from('receivables').select('id').ilike('description', `%${id.slice(0, 8)}%`);
       if (recsDesc) {
           for (const r of recsDesc) {
@@ -155,18 +187,16 @@ export const useDeleteSale = () => {
   });
 };
 
-// 3. OUTRAS FUNÇÕES (PARA CORRIGIR ERRO DO VERCEL)
+// 3. OUTRAS FUNÇÕES
 export const useCreatePassenger = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (p: any) => { await supabase.from('passengers').insert(p); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['passengers'] }) })};
 export const useCreateTransaction = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (p: any) => { const safeP = { ...p, total_cost: parseCurrency(p.total_cost) }; await supabase.from('transactions').insert(safeP); }, onSuccess: () => { qc.invalidateQueries({ queryKey: ['transactions'] }); qc.invalidateQueries({ queryKey: ['miles_balance'] }); } })};
 export const useDeleteTransaction = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (id: string) => { await supabase.from('transactions').delete().eq('id', id); }, onSuccess: () => { qc.invalidateQueries({ queryKey: ['transactions'] }); qc.invalidateQueries({ queryKey: ['miles_balance'] }); } })};
 
-// AS FUNÇÕES QUE FALTAVAM
 export const useCreatePayable = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (p: any) => { await supabase.from('payables').insert(p); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['payable_installments'] }) })};
 export const useCreatePayableInstallments = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (items: any[]) => { await supabase.from('payable_installments').insert(items); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['payable_installments'] }) })};
 export const useCreateReceivable = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (p: any) => { await supabase.from('receivables').insert(p); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['receivable_installments'] }) })};
 export const useCreateReceivableInstallments = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (items: any[]) => { await supabase.from('receivable_installments').insert(items); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['receivable_installments'] }) })};
 
-// Cartões
 export const useCreateCreditCard = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (c: any) => { await supabase.from('credit_cards').insert({...c, limit_amount: parseCurrency(c.limite)}); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['credit_cards'] }) })};
 export const useUpdateCreditCard = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async ({id, ...c}: any) => { await supabase.from('credit_cards').update({...c, limit_amount: parseCurrency(c.limite)}).eq('id', id); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['credit_cards'] }) })};
 export const useDeleteCreditCard = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (id: string) => { await supabase.from('credit_cards').delete().eq('id', id); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['credit_cards'] }) })};
