@@ -2,13 +2,19 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
+// --- CORREÇÃO 1: PARSER MAIS ROBUSTO ---
+// Remove pontos de milhar antes de converter (evita que 2.000 vire 2)
 const parseCurrency = (value: any) => {
   if (typeof value === 'number') return value;
-  if (typeof value === 'string') return parseFloat(value.replace(',', '.'));
+  if (typeof value === 'string') {
+      // Remove pontos e troca vírgula por ponto
+      const cleanValue = value.replace(/\./g, '').replace(',', '.');
+      return parseFloat(cleanValue);
+  }
   return 0;
 };
 
-/* --- LEITURA --- */
+/* --- LEITURA (Mantida igual) --- */
 export const useAccounts = () => useQuery({ queryKey: ['accounts'], queryFn: async () => (await supabase.from('accounts').select('*').order('name')).data || [] });
 export const usePrograms = () => useQuery({ queryKey: ['programs'], queryFn: async () => (await supabase.from('programs').select('*').order('name')).data || [] });
 export const usePassageiros = () => useQuery({ queryKey: ['passengers'], queryFn: async () => (await supabase.from('passengers').select('*').order('name')).data || [] });
@@ -30,34 +36,26 @@ export const useMilesBalance = () => useQuery({
 
 export const useExpiringMiles = () => useQuery({ queryKey: ['expiring_miles'], queryFn: async () => (await supabase.from('expiring_miles').select('*').order('expiration_date')).data || [] });
 
-// VENDAS
 export const useSales = () => useQuery({ 
     queryKey: ['sales'], 
     queryFn: async () => (await supabase.from('transactions').select('*').eq('type', 'VENDA').order('transaction_date', { ascending: false })).data || [] 
 });
 
-// FINANCEIRO
 export const useReceivableInstallments = () => useQuery({ queryKey: ['receivable_installments'], queryFn: async () => (await supabase.from('receivable_installments').select(`*, receivables (description, total_amount)`).order('due_date')).data || [] });
 export const usePayableInstallments = () => useQuery({ queryKey: ['payable_installments'], queryFn: async () => (await supabase.from('payable_installments').select(`*, payables (description, credit_cards (name))`).order('due_date')).data || [] });
 
 /* --- ESCRITA --- */
 
-// 1. CRIAR VENDA
 export const useCreateSale = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (newSale: any) => {
       const { data: { user } } = await supabase.auth.getUser();
       const valorReceitaTotal = parseCurrency(newSale.valorTotal);
-      const qtdMilhas = Math.abs(parseInt(newSale.quantidade));
+      const qtdMilhas = Math.abs(parseCurrency(newSale.quantidade)); // Usa parser corrigido
       const quantidadeNegativa = -1 * qtdMilhas;
 
-      // Chama a Calculadora Blindada para Venda também
-      const { data: cpmAtual, error: rpcError } = await supabase
-        .rpc('get_safe_cpm', { 
-            p_account_id: newSale.contaId, 
-            p_program_id: newSale.programaId 
-        });
+      const { data: cpmAtual } = await supabase.rpc('get_safe_cpm', { p_account_id: newSale.contaId, p_program_id: newSale.programaId });
 
       let custoDoEstoque = 0;
       if (cpmAtual && cpmAtual > 0) {
@@ -109,17 +107,14 @@ export const useCreateSale = () => {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['sales'] });
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      queryClient.invalidateQueries({ queryKey: ['miles_balance'] });
-      queryClient.invalidateQueries({ queryKey: ['receivable_installments'] });
+      queryClient.invalidateQueries({ queryKey: ['sales'] }); queryClient.invalidateQueries({ queryKey: ['transactions'] }); queryClient.invalidateQueries({ queryKey: ['miles_balance'] }); queryClient.invalidateQueries({ queryKey: ['receivable_installments'] });
       toast.success('Venda registrada!');
     },
     onError: (error: any) => toast.error(`Erro: ${error.message}`)
   });
 };
 
-// 2. TRANSFERÊNCIA INTELIGENTE (Versão RPC - Calculadora Blindada)
+// --- TRANSFERÊNCIA COM ESPIÃO ---
 export const useCreateTransfer = () => {
   const queryClient = useQueryClient();
 
@@ -127,89 +122,62 @@ export const useCreateTransfer = () => {
     mutationFn: async (transferData: any) => {
       const { data: { user } } = await supabase.auth.getUser();
       
-      const {
-        contaOrigemId,
-        programaOrigemId,
-        contaDestinoId,
-        programaDestinoId,
-        quantidadeOrigem,
-        quantidadeDestino,
-        dataTransferencia,
-        custoTransferencia = 0,
-        observacao
-      } = transferData;
+      const { contaOrigemId, programaOrigemId, contaDestinoId, programaDestinoId, quantidadeOrigem, quantidadeDestino, dataTransferencia, custoTransferencia = 0, observacao } = transferData;
 
-      const qtdSai = Math.abs(parseFloat(quantidadeOrigem));
-      const qtdEntra = Math.abs(parseFloat(quantidadeDestino));
+      // Parse com segurança contra pontos de milhar
+      const qtdSai = Math.abs(parseCurrency(quantidadeOrigem));
+      const qtdEntra = Math.abs(parseCurrency(quantidadeDestino));
       const taxa = parseCurrency(custoTransferencia);
 
-      // --- PASSO 1: CHAMADA RPC AO BANCO (INFALÍVEL) ---
-      // O banco calcula e devolve o número. Não tem "No rows returned" aqui.
-      const { data: cpmOrigem, error: rpcError } = await supabase
-        .rpc('get_safe_cpm', { 
-            p_account_id: contaOrigemId, 
-            p_program_id: programaOrigemId 
-        });
+      // Chamada RPC
+      const { data: cpmOrigem, error: rpcError } = await supabase.rpc('get_safe_cpm', { p_account_id: contaOrigemId, p_program_id: programaOrigemId });
 
-      if (rpcError) {
-          console.error("Erro RPC:", rpcError);
-          throw new Error("Erro ao calcular CPM da origem.");
-      }
-
-      // TRAVA DE SEGURANÇA: Se o banco disser que é ZERO, avisamos o usuário.
-      if (!cpmOrigem || cpmOrigem === 0) {
-         throw new Error("Atenção: O saldo ou CPM da conta de origem está zerado. A transferência ficaria com custo zero. Verifique o extrato da origem antes de transferir.");
-      }
-
+      if (rpcError) throw new Error("Erro RPC: " + rpcError.message);
+      
       const cpmReal = Number(cpmOrigem);
       const custoTotalSaindo = (qtdSai / 1000) * cpmReal;
 
-      console.log(`Transferência RPC: CPM R$ ${cpmReal.toFixed(2)} | Migrando R$ ${custoTotalSaindo.toFixed(2)}`);
+      // --- O ESPIÃO: ALERTA NA TELA ---
+      // Se aparecer Qtd: 2 (em vez de 2000), é erro de parse.
+      // Se aparecer CPM: 0, é erro de ID.
+      alert(`CONFIRMAÇÃO DE DADOS:\n\nQtd Saindo: ${qtdSai}\nCPM Origem (Banco): R$ ${cpmReal.toFixed(2)}\nCusto Migrando: R$ ${custoTotalSaindo.toFixed(2)}`);
 
-      // --- PASSO 2: REGISTRAR SAÍDA ---
+      if (!cpmOrigem || cpmOrigem === 0) {
+         throw new Error("ABORTADO: O Banco retornou CPM ZERO. Verifique se a conta de origem tem saldo.");
+      }
+
+      // 2. Registrar Saída
       const { error: errorOrigem } = await supabase.from('transactions').insert({
-        user_id: user?.id,
-        account_id: contaOrigemId,
-        program_id: programaOrigemId,
-        type: 'TRANSF_SAIDA',
+        user_id: user?.id, account_id: contaOrigemId, program_id: programaOrigemId, type: 'TRANSF_SAIDA',
         quantity: -qtdSai, 
-        total_cost: custoTotalSaindo, 
+        total_cost: custoTotalSaindo, // Valor positivo
         transaction_date: dataTransferencia,
         description: `Transf. para ${programaDestinoId} (Saída)`,
         notes: `CPM Origem: ${cpmReal.toFixed(2)} | Migrou: R$ ${custoTotalSaindo.toFixed(2)}`
       });
-
       if (errorOrigem) throw errorOrigem;
 
-      // --- PASSO 3: REGISTRAR ENTRADA ---
+      // 3. Registrar Entrada
       const custoFinalEntrada = custoTotalSaindo + taxa;
-
       const { error: errorDestino } = await supabase.from('transactions').insert({
-        user_id: user?.id,
-        account_id: contaDestinoId,
-        program_id: programaDestinoId,
-        type: 'TRANSF_ENTRADA',
+        user_id: user?.id, account_id: contaDestinoId, program_id: programaDestinoId, type: 'TRANSF_ENTRADA',
         quantity: qtdEntra,
         total_cost: custoFinalEntrada,
         transaction_date: dataTransferencia,
         description: `Transf. de ${programaOrigemId} (Entrada)`,
         notes: `${observacao || ''} | Custo Herdado: R$ ${custoTotalSaindo.toFixed(2)} + Taxas: R$ ${taxa.toFixed(2)}`
       });
-
       if (errorDestino) throw errorDestino;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      queryClient.invalidateQueries({ queryKey: ['miles_balance'] });
+      queryClient.invalidateQueries({ queryKey: ['transactions'] }); queryClient.invalidateQueries({ queryKey: ['miles_balance'] });
       toast.success('Transferência realizada!');
     },
-    onError: (error: any) => {
-      toast.error(`${error.message}`);
-    }
+    onError: (error: any) => { toast.error(`${error.message}`); }
   });
 };
 
-// OUTRAS FUNÇÕES (Mantidas iguais, só resumo aqui para caber)
+// OUTRAS FUNÇÕES (Resumidas para caber)
 export const useDeleteSale = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (id: string) => { const { data: recs } = await supabase.from('receivables').select('id').eq('transaction_id', id); if(recs) for(const r of recs) { await supabase.from('receivable_installments').delete().eq('receivable_id', r.id); await supabase.from('receivables').delete().eq('id', r.id); } await supabase.from('transactions').delete().eq('id', id); }, onSuccess: () => { qc.invalidateQueries({ queryKey: ['sales'] }); qc.invalidateQueries({ queryKey: ['transactions'] }); qc.invalidateQueries({ queryKey: ['miles_balance'] }); toast.success('Excluído!'); } }) };
 export const useCreatePassenger = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (p: any) => { await supabase.from('passengers').insert(p); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['passengers'] }) })};
 export const useCreateTransaction = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (p: any) => { const safeP = { ...p, total_cost: parseCurrency(p.total_cost) }; await supabase.from('transactions').insert(safeP); }, onSuccess: () => { qc.invalidateQueries({ queryKey: ['transactions'] }); qc.invalidateQueries({ queryKey: ['miles_balance'] }); } })};
