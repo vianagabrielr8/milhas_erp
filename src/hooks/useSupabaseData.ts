@@ -70,8 +70,7 @@ export const useCreateSale = () => {
       const qtdMilhas = Math.abs(parseInt(newSale.quantidade));
       const quantidadeNegativa = -1 * qtdMilhas;
 
-      // Cálculo de CPM para baixa de estoque
-      // Tenta calcular baseado no histórico para registrar o custo da baixa
+      // Tenta calcular CPM baseado no histórico para registrar o custo da baixa
       const { data: entradas } = await supabase
         .from('transactions')
         .select('quantity, total_cost')
@@ -162,7 +161,7 @@ export const useCreateSale = () => {
   });
 };
 
-// 2. TRANSFERÊNCIA INTELIGENTE (Versão Corrigida: Lê do Dashboard)
+// 2. TRANSFERÊNCIA INTELIGENTE (Versão Corrigida: Lê CPM do Painel)
 export const useCreateTransfer = () => {
   const queryClient = useQueryClient();
 
@@ -186,8 +185,8 @@ export const useCreateTransfer = () => {
       const qtdEntra = Math.abs(parseFloat(quantidadeDestino));
       const taxa = parseCurrency(custoTransferencia);
 
-      // --- PASSO 1: LER CPM DA ORIGEM DIRETO DO RESUMO ---
-      // Consulta a visão oficial que alimenta o Dashboard (que sabemos estar correta)
+      // --- PASSO 1: LER CPM DA ORIGEM DIRETO DO BANCO (FONTE DA VERDADE) ---
+      // Consulta a mesma tabela que alimenta o Dashboard, garantindo que o valor bata.
       const { data: resumoOrigem, error: erroResumo } = await supabase
         .from('program_balance_summary')
         .select('balance, total_invested')
@@ -200,21 +199,21 @@ export const useCreateTransfer = () => {
       let cpmOrigem = 0;
       let custoTotalSaindo = 0;
 
+      // Se existir saldo, calculamos o CPM exato
       if (resumoOrigem && Number(resumoOrigem.balance) > 0) {
           const saldoAtual = Number(resumoOrigem.balance);
           const investidoAtual = Number(resumoOrigem.total_invested);
           
           cpmOrigem = (investidoAtual / saldoAtual) * 1000;
           
-          // O custo financeiro que migra é proporcional:
-          // (Qtd Saindo / 1000) * CPM Atual
+          // O custo financeiro que migra é proporcional
           custoTotalSaindo = (qtdSai / 1000) * cpmOrigem;
       }
 
       console.log(`Transferência: CPM Origem R$ ${cpmOrigem.toFixed(2)} | Migrando R$ ${custoTotalSaindo.toFixed(2)}`);
 
       // --- PASSO 2: REGISTRAR SAÍDA ---
-      // Gravamos o custo como positivo. A View do banco saberá subtrair porque o tipo é SAIDA/negativo.
+      // O custoTotalSaindo entra positivo. A View do banco vai subtrair automaticamente por ser 'TRANSF_SAIDA'.
       const { error: errorOrigem } = await supabase.from('transactions').insert({
         user_id: user?.id,
         account_id: contaOrigemId,
