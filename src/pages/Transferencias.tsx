@@ -1,22 +1,24 @@
 import { useState, useMemo } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { PageHeader } from '@/components/ui/page-header';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useAccounts, usePrograms, useMilesBalance } from '@/hooks/useSupabaseData'; // <--- Adicionei useMilesBalance
-import { supabase } from '@/integrations/supabase/client';
+// IMPORTANTE: Adicionei useCreateTransfer aqui
+import { useAccounts, usePrograms, useMilesBalance, useCreateTransfer } from '@/hooks/useSupabaseData';
 import { toast } from 'sonner';
-import { ArrowRight, Calculator, CalendarIcon, User, Wallet, ArrowRightLeft, Coins } from 'lucide-react';
+import { ArrowRight, Calculator, CalendarIcon, User, Wallet, ArrowRightLeft } from 'lucide-react';
 import { format } from 'date-fns';
-import { Badge } from '@/components/ui/badge';
 
 const Transferencias = () => {
   const { data: accounts } = useAccounts();
   const { data: programs } = usePrograms();
-  const { data: milesBalance } = useMilesBalance(); // <--- Pega os saldos
+  const { data: milesBalance } = useMilesBalance();
+  
+  // Conecta com o nosso código "Trator"
+  const createTransfer = useCreateTransfer();
 
   // Estados
   const [selectedAccount, setSelectedAccount] = useState('');
@@ -25,13 +27,13 @@ const Transferencias = () => {
   const [amount, setAmount] = useState('');
   const [bonusPercent, setBonusPercent] = useState('0');
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // O estado de loading agora vem do hook
+  const isSubmitting = createTransfer.isPending;
 
-  // --- LÓGICA DE SALDO (Novidade) ---
+  // --- LÓGICA DE SALDO ---
   const currentBalance = useMemo(() => {
     if (!selectedAccount || !sourceProgram || !milesBalance) return 0;
-    
-    // Procura o saldo específico dessa conta naquele programa
     const registro = milesBalance.find(
         m => m.account_id === selectedAccount && m.program_id === sourceProgram
     );
@@ -44,19 +46,15 @@ const Transferencias = () => {
     const bonus = parseFloat(bonusPercent) || 0;
     const bonusAmount = Math.floor(qtd * (bonus / 100));
     const total = qtd + bonusAmount;
-    
-    // Verifica se tem saldo suficiente
     const hasBalance = currentBalance >= qtd;
-
     return { qtd, bonus, bonusAmount, total, hasBalance };
   }, [amount, bonusPercent, currentBalance]);
 
-  // --- AÇÃO: USAR MÁXIMO ---
   const handleUseMax = () => {
     setAmount(currentBalance.toString());
   };
 
-  // --- AÇÃO: TRANSFERIR ---
+  // --- AÇÃO: TRANSFERIR (AGORA USANDO O HOOK CORRETO) ---
   const handleTransfer = async () => {
     if (!selectedAccount || !sourceProgram || !destProgram || !amount || !date) {
       toast.error('Preencha todos os campos obrigatórios.');
@@ -73,41 +71,34 @@ const Transferencias = () => {
       return;
     }
 
-    // Trava se não tiver saldo (Opcional: pode deixar passar negativo se quiser, mas geralmente não pode)
     if (calculation.qtd > currentBalance) {
         if (!confirm('ATENÇÃO: Você está transferindo mais pontos do que consta no estoque. Deseja continuar e ficar negativo?')) {
             return;
         }
     }
 
-    setIsSubmitting(true);
-
+    // AQUI ESTÁ A MUDANÇA MÁGICA
+    // Em vez de chamar o supabase direto, chamamos nosso hook que tem a calculadora
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Usuário não logado');
+        await createTransfer.mutateAsync({
+            contaOrigemId: selectedAccount,
+            programaOrigemId: sourceProgram,
+            contaDestinoId: selectedAccount, // Assume mesma conta (titularidade)
+            programaDestinoId: destProgram,
+            quantidadeOrigem: calculation.qtd,
+            quantidadeDestino: calculation.total, // Já com bônus
+            dataTransferencia: date,
+            custoTransferencia: 0,
+            observacao: `Bônus de ${bonusPercent}%`
+        });
 
-      const { error } = await supabase.rpc('perform_transfer', {
-        p_user_id: user.id,
-        p_account_id: selectedAccount,
-        p_source_program_id: sourceProgram,
-        p_dest_program_id: destProgram,
-        p_amount: calculation.qtd,
-        p_bonus_percent: calculation.bonus,
-        p_date: date,
-        p_cost_per_thousand: 0 
-      });
-
-      if (error) throw error;
-
-      toast.success('Transferência realizada com sucesso!');
-      setAmount('');
-      setBonusPercent('0');
-      
-    } catch (error: any) {
-      console.error(error);
-      toast.error('Erro: ' + error.message);
-    } finally {
-      setIsSubmitting(false);
+        // Limpa formulário após sucesso
+        setAmount('');
+        setBonusPercent('0');
+        
+    } catch (error) {
+        // O erro já é tratado no hook, mas mantemos o catch para segurança
+        console.error("Erro no formulário:", error);
     }
   };
 
