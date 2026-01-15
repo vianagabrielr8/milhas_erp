@@ -16,19 +16,14 @@ export const useCreditCards = () => useQuery({ queryKey: ['credit_cards'], query
 export const useSuppliers = () => useQuery({ queryKey: ['suppliers'], queryFn: async () => (await supabase.from('suppliers').select('*').order('name')).data || [] });
 export const useTransactions = () => useQuery({ queryKey: ['transactions'], queryFn: async () => (await supabase.from('transactions').select('*').order('transaction_date', { ascending: false })).data || [] });
 
-// --- AQUI ESTÁ A CORREÇÃO MÁGICA ---
-// Em vez de ler 'miles_balance' (que está vazio), lemos 'program_balance_summary' (que está cheio)
-// e adaptamos o nome das colunas para o site entender.
+// CORREÇÃO: Lendo da view program_balance_summary para garantir dados corretos no dashboard
 export const useMilesBalance = () => useQuery({ 
     queryKey: ['miles_balance'], 
     queryFn: async () => {
-        // Busca da tabela que VIMOS no print que tem dados
         const { data } = await supabase.from('program_balance_summary').select('*');
-        
-        // O site espera "quantity", mas a tabela tem "balance". Vamos traduzir:
         return data?.map((item: any) => ({
             ...item,
-            quantity: item.balance,           // Traduz Balance -> Quantity
+            quantity: item.balance,
             total_invested: item.total_invested
         })) || [];
     } 
@@ -164,6 +159,104 @@ export const useCreateSale = () => {
   });
 };
 
+// 2. NOVA FUNÇÃO: TRANSFERÊNCIA INTELIGENTE (CPM MIGRATÓRIO)
+export const useCreateTransfer = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (transferData: any) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      const {
+        contaOrigemId,
+        programaOrigemId,
+        contaDestinoId,
+        programaDestinoId,
+        quantidadeOrigem,
+        quantidadeDestino,
+        dataTransferencia,
+        custoTransferencia = 0,
+        observacao
+      } = transferData;
+
+      const qtdSai = Math.abs(parseFloat(quantidadeOrigem));
+      const qtdEntra = Math.abs(parseFloat(quantidadeDestino));
+      const taxa = parseCurrency(custoTransferencia);
+
+      // 1. Descobrir CPM da Origem
+      const { data: transacoesOrigem } = await supabase
+        .from('transactions')
+        .select('quantity, total_cost')
+        .eq('user_id', user?.id)
+        .eq('account_id', contaOrigemId)
+        .eq('program_id', programaOrigemId);
+
+      let custoTotalSaindo = 0;
+      let cpmOrigem = 0;
+
+      if (transacoesOrigem && transacoesOrigem.length > 0) {
+        let saldoQtd = 0;
+        let saldoInvestido = 0;
+
+        transacoesOrigem.forEach(t => {
+            saldoQtd += t.quantity;
+            if (t.quantity < 0) {
+                 saldoInvestido -= Math.abs(t.total_cost); 
+            } else {
+                 saldoInvestido += t.total_cost;
+            }
+        });
+
+        if (saldoQtd > 0 && saldoInvestido > 0) {
+            cpmOrigem = (saldoInvestido / saldoQtd) * 1000;
+            custoTotalSaindo = (qtdSai / 1000) * cpmOrigem;
+        }
+      }
+
+      // 2. Registrar Saída (Origem)
+      const { error: errorOrigem } = await supabase.from('transactions').insert({
+        user_id: user?.id,
+        account_id: contaOrigemId,
+        program_id: programaOrigemId,
+        type: 'TRANSF_SAIDA',
+        quantity: -qtdSai,
+        total_cost: custoTotalSaindo, 
+        transaction_date: dataTransferencia,
+        description: `Transf. para ${programaDestinoId} (Saída)`,
+        notes: `CPM Origem: ${cpmOrigem.toFixed(2)} | Migrou: R$ ${custoTotalSaindo.toFixed(2)}`
+      });
+
+      if (errorOrigem) throw errorOrigem;
+
+      // 3. Registrar Entrada (Destino)
+      const custoFinalEntrada = custoTotalSaindo + taxa;
+
+      const { error: errorDestino } = await supabase.from('transactions').insert({
+        user_id: user?.id,
+        account_id: contaDestinoId,
+        program_id: programaDestinoId,
+        type: 'TRANSF_ENTRADA',
+        quantity: qtdEntra,
+        total_cost: custoFinalEntrada,
+        transaction_date: dataTransferencia,
+        description: `Transf. de ${programaOrigemId} (Entrada)`,
+        notes: `${observacao || ''} | Custo Herdado: R$ ${custoTotalSaindo.toFixed(2)} + Taxas: R$ ${taxa.toFixed(2)}`
+      });
+
+      if (errorDestino) throw errorDestino;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['miles_balance'] });
+      toast.success('Transferência realizada!');
+    },
+    onError: (error: any) => {
+      toast.error(`Erro na transferência: ${error.message}`);
+    }
+  });
+};
+
+// 3. EXCLUIR VENDA
 export const useDeleteSale = () => {
   const queryClient = useQueryClient();
   return useMutation({
