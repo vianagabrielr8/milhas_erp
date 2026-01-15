@@ -130,7 +130,7 @@ export const useCreateSale = () => {
   });
 };
 
-// 2. TRANSFERÊNCIA (Versão Final: Calculadora JS Limpa)
+// 2. TRANSFERÊNCIA (Versão JS Limpa)
 export const useCreateTransfer = () => {
   const queryClient = useQueryClient();
 
@@ -143,7 +143,6 @@ export const useCreateTransfer = () => {
       const qtdEntra = Math.abs(parseCurrency(quantidadeDestino));
       const taxa = parseCurrency(custoTransferencia);
 
-      // --- 1. LER HISTÓRICO ---
       const { data: historico, error: erroHist } = await supabase
         .from('transactions')
         .select('quantity, total_cost')
@@ -152,7 +151,6 @@ export const useCreateTransfer = () => {
       
       if (erroHist) throw erroHist;
 
-      // --- 2. CALCULAR CPM ---
       let saldo = 0;
       let investido = 0;
 
@@ -174,7 +172,6 @@ export const useCreateTransfer = () => {
           custoTotalSaindo = (qtdSai / 1000) * cpmOrigem;
       }
 
-      // --- 3. GRAVAR SAÍDA ---
       const { error: errorOrigem } = await supabase.from('transactions').insert({
         user_id: user?.id, 
         account_id: contaOrigemId, 
@@ -188,7 +185,6 @@ export const useCreateTransfer = () => {
       });
       if (errorOrigem) throw errorOrigem;
 
-      // --- 4. GRAVAR ENTRADA ---
       const custoFinalEntrada = custoTotalSaindo + taxa;
       
       const { error: errorDestino } = await supabase.from('transactions').insert({
@@ -213,16 +209,83 @@ export const useCreateTransfer = () => {
   });
 };
 
-// OUTRAS FUNÇÕES
+/* AQUI ESTAVA O ERRO! 
+   Agora todas essas funções retornam o objeto criado (return data) 
+   usando .select().single() 
+*/
+
+// CRIAR TRANSAÇÃO GENÉRICA (Usado na Compra)
+export const useCreateTransaction = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (p: any) => {
+      const safeP = { ...p, total_cost: parseCurrency(p.total_cost) };
+      const { data, error } = await supabase.from('transactions').insert(safeP).select().single(); // <--- CORRIGIDO
+      if (error) throw error;
+      return data; // <--- RETORNA O DADO
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['miles_balance'] });
+    }
+  });
+};
+
+// CRIAR CONTA A PAGAR
+export const useCreatePayable = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (p: any) => {
+      const { data, error } = await supabase.from('payables').insert(p).select().single(); // <--- CORRIGIDO
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['payable_installments'] })
+  });
+};
+
+// CRIAR PARCELAS A PAGAR
+export const useCreatePayableInstallments = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (items: any[]) => {
+      const { data, error } = await supabase.from('payable_installments').insert(items).select();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['payable_installments'] })
+  });
+};
+
+// CRIAR CONTA A RECEBER
+export const useCreateReceivable = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (p: any) => {
+      const { data, error } = await supabase.from('receivables').insert(p).select().single(); // <--- CORRIGIDO
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['receivable_installments'] })
+  });
+};
+
+// CRIAR PARCELAS A RECEBER
+export const useCreateReceivableInstallments = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (items: any[]) => {
+      const { data, error } = await supabase.from('receivable_installments').insert(items).select();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['receivable_installments'] })
+  });
+};
+
+// OUTRAS AUXILIARES
 export const useDeleteSale = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (id: string) => { const { data: recs } = await supabase.from('receivables').select('id').eq('transaction_id', id); if(recs) for(const r of recs) { await supabase.from('receivable_installments').delete().eq('receivable_id', r.id); await supabase.from('receivables').delete().eq('id', r.id); } await supabase.from('transactions').delete().eq('id', id); }, onSuccess: () => { qc.invalidateQueries({ queryKey: ['sales'] }); qc.invalidateQueries({ queryKey: ['transactions'] }); qc.invalidateQueries({ queryKey: ['miles_balance'] }); toast.success('Excluído!'); } }) };
 export const useCreatePassenger = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (p: any) => { await supabase.from('passengers').insert(p); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['passengers'] }) })};
-export const useCreateTransaction = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (p: any) => { const safeP = { ...p, total_cost: parseCurrency(p.total_cost) }; await supabase.from('transactions').insert(safeP); }, onSuccess: () => { qc.invalidateQueries({ queryKey: ['transactions'] }); qc.invalidateQueries({ queryKey: ['miles_balance'] }); } })};
 export const useDeleteTransaction = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (id: string) => { await supabase.from('transactions').delete().eq('id', id); }, onSuccess: () => { qc.invalidateQueries({ queryKey: ['transactions'] }); qc.invalidateQueries({ queryKey: ['miles_balance'] }); } })};
 export const useUpdateTransaction = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async ({ id, ...updates }: any) => { const safeUpdates = { ...updates }; if (safeUpdates.total_cost) safeUpdates.total_cost = parseCurrency(safeUpdates.total_cost); const { error } = await supabase.from('transactions').update(safeUpdates).eq('id', id); if (error) throw error; }, onSuccess: () => { qc.invalidateQueries({ queryKey: ['transactions'] }); qc.invalidateQueries({ queryKey: ['miles_balance'] }); qc.invalidateQueries({ queryKey: ['sales'] }); toast.success('Atualizado!'); } }) };
-export const useCreatePayable = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (p: any) => { await supabase.from('payables').insert(p); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['payable_installments'] }) })};
-export const useCreatePayableInstallments = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (items: any[]) => { await supabase.from('payable_installments').insert(items); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['payable_installments'] }) })};
-export const useCreateReceivable = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (p: any) => { await supabase.from('receivables').insert(p); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['receivable_installments'] }) })};
-export const useCreateReceivableInstallments = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (items: any[]) => { await supabase.from('receivable_installments').insert(items); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['receivable_installments'] }) })};
-export const useCreateCreditCard = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (c: any) => { await supabase.from('credit_cards').insert({...c, limit_amount: parseCurrency(c.limite)}); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['credit_cards'] }) })};
-export const useUpdateCreditCard = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async ({id, ...c}: any) => { await supabase.from('credit_cards').update({...c, limit_amount: parseCurrency(c.limite)}).eq('id', id); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['credit_cards'] }) })};
-export const useDeleteCreditCard = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (id: string) => { await supabase.from('credit_cards').delete().eq('id', id); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['credit_cards'] }) })};
+export const useCreateCreditCard = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (c: any) => {
