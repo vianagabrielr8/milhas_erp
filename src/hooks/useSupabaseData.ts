@@ -161,7 +161,7 @@ export const useCreateSale = () => {
   });
 };
 
-// 2. TRANSFERÊNCIA INTELIGENTE (Versão Corrigida: Lê CPM do Painel)
+// 2. TRANSFERÊNCIA INTELIGENTE (Versão Produção: Lê CPM do Painel e Grava)
 export const useCreateTransfer = () => {
   const queryClient = useQueryClient();
 
@@ -186,7 +186,6 @@ export const useCreateTransfer = () => {
       const taxa = parseCurrency(custoTransferencia);
 
       // --- PASSO 1: LER CPM DA ORIGEM DIRETO DO BANCO (FONTE DA VERDADE) ---
-      // Consulta a mesma tabela que alimenta o Dashboard, garantindo que o valor bata.
       const { data: resumoOrigem, error: erroResumo } = await supabase
         .from('program_balance_summary')
         .select('balance, total_invested')
