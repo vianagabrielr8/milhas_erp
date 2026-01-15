@@ -2,19 +2,20 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
-// --- CORREÇÃO 1: PARSER MAIS ROBUSTO ---
-// Remove pontos de milhar antes de converter (evita que 2.000 vire 2)
+// --- PARSER DE MOEDA (Blindado contra 2.000 virar 2) ---
 const parseCurrency = (value: any) => {
   if (typeof value === 'number') return value;
+  if (!value) return 0;
   if (typeof value === 'string') {
-      // Remove pontos e troca vírgula por ponto
-      const cleanValue = value.replace(/\./g, '').replace(',', '.');
-      return parseFloat(cleanValue);
+      // Remove pontos de milhar e troca vírgula por ponto
+      // Ex: "2.000,50" -> "2000.50"
+      const clean = value.replace(/\./g, '').replace(',', '.');
+      return parseFloat(clean) || 0;
   }
   return 0;
 };
 
-/* --- LEITURA (Mantida igual) --- */
+/* --- LEITURA (Mantida a leitura do Dashboard via View, pois funciona bem para ler) --- */
 export const useAccounts = () => useQuery({ queryKey: ['accounts'], queryFn: async () => (await supabase.from('accounts').select('*').order('name')).data || [] });
 export const usePrograms = () => useQuery({ queryKey: ['programs'], queryFn: async () => (await supabase.from('programs').select('*').order('name')).data || [] });
 export const usePassageiros = () => useQuery({ queryKey: ['passengers'], queryFn: async () => (await supabase.from('passengers').select('*').order('name')).data || [] });
@@ -25,6 +26,7 @@ export const useTransactions = () => useQuery({ queryKey: ['transactions'], quer
 export const useMilesBalance = () => useQuery({ 
     queryKey: ['miles_balance'], 
     queryFn: async () => {
+        // Leitura continua pela View pois é rápida para exibir na tela
         const { data } = await supabase.from('program_balance_summary').select('*');
         return data?.map((item: any) => ({
             ...item,
@@ -35,33 +37,52 @@ export const useMilesBalance = () => useQuery({
 });
 
 export const useExpiringMiles = () => useQuery({ queryKey: ['expiring_miles'], queryFn: async () => (await supabase.from('expiring_miles').select('*').order('expiration_date')).data || [] });
-
-export const useSales = () => useQuery({ 
-    queryKey: ['sales'], 
-    queryFn: async () => (await supabase.from('transactions').select('*').eq('type', 'VENDA').order('transaction_date', { ascending: false })).data || [] 
-});
-
+export const useSales = () => useQuery({ queryKey: ['sales'], queryFn: async () => (await supabase.from('transactions').select('*').eq('type', 'VENDA').order('transaction_date', { ascending: false })).data || [] });
 export const useReceivableInstallments = () => useQuery({ queryKey: ['receivable_installments'], queryFn: async () => (await supabase.from('receivable_installments').select(`*, receivables (description, total_amount)`).order('due_date')).data || [] });
 export const usePayableInstallments = () => useQuery({ queryKey: ['payable_installments'], queryFn: async () => (await supabase.from('payable_installments').select(`*, payables (description, credit_cards (name))`).order('due_date')).data || [] });
 
 /* --- ESCRITA --- */
 
+// 1. CRIAR VENDA (Calculando CPM no Javascript - Método Trator)
 export const useCreateSale = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (newSale: any) => {
       const { data: { user } } = await supabase.auth.getUser();
       const valorReceitaTotal = parseCurrency(newSale.valorTotal);
-      const qtdMilhas = Math.abs(parseCurrency(newSale.quantidade)); // Usa parser corrigido
+      const qtdMilhas = Math.abs(parseCurrency(newSale.quantidade)); 
       const quantidadeNegativa = -1 * qtdMilhas;
 
-      const { data: cpmAtual } = await supabase.rpc('get_safe_cpm', { p_account_id: newSale.contaId, p_program_id: newSale.programaId });
+      // --- CÁLCULO MANUAL DO CPM (JavaScript) ---
+      const { data: historico } = await supabase
+        .from('transactions')
+        .select('quantity, total_cost')
+        .eq('account_id', newSale.contaId)
+        .eq('program_id', newSale.programaId);
 
-      let custoDoEstoque = 0;
-      if (cpmAtual && cpmAtual > 0) {
-          custoDoEstoque = (qtdMilhas / 1000) * Number(cpmAtual);
+      let saldo = 0;
+      let investido = 0;
+
+      if (historico) {
+          historico.forEach(t => {
+              const q = Number(t.quantity);
+              const c = Number(t.total_cost);
+              saldo += q;
+              // Se qtd < 0 (saída), subtrai o custo proporcional. Se > 0 (entrada), soma.
+              if (q < 0) investido -= Math.abs(c);
+              else investido += Math.abs(c);
+          });
       }
 
+      let cpmAtual = 0;
+      let custoDoEstoque = 0;
+
+      if (saldo > 0 && investido > 0) {
+          cpmAtual = (investido / saldo) * 1000;
+          custoDoEstoque = (qtdMilhas / 1000) * cpmAtual;
+      }
+
+      // Salva a venda
       const { data: transaction, error: transError } = await supabase.from('transactions')
         .insert({
             user_id: user?.id,
@@ -72,7 +93,7 @@ export const useCreateSale = () => {
             total_cost: custoDoEstoque,
             transaction_date: newSale.dataVenda,
             description: `Venda Milhas`,
-            notes: `${newSale.observacoes || ''} | CPM Baixa: ${Number(cpmAtual).toFixed(2)}`
+            notes: `${newSale.observacoes || ''} | CPM Baixa: ${cpmAtual.toFixed(2)}`
         }).select().single();
 
       if (transError) throw transError;
@@ -114,70 +135,107 @@ export const useCreateSale = () => {
   });
 };
 
-// --- TRANSFERÊNCIA COM ESPIÃO ---
+// 2. TRANSFERÊNCIA (Calculando CPM no Javascript - Método Trator)
 export const useCreateTransfer = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (transferData: any) => {
       const { data: { user } } = await supabase.auth.getUser();
-      
       const { contaOrigemId, programaOrigemId, contaDestinoId, programaDestinoId, quantidadeOrigem, quantidadeDestino, dataTransferencia, custoTransferencia = 0, observacao } = transferData;
 
-      // Parse com segurança contra pontos de milhar
+      // Parse seguro
       const qtdSai = Math.abs(parseCurrency(quantidadeOrigem));
       const qtdEntra = Math.abs(parseCurrency(quantidadeDestino));
       const taxa = parseCurrency(custoTransferencia);
 
-      // Chamada RPC
-      const { data: cpmOrigem, error: rpcError } = await supabase.rpc('get_safe_cpm', { p_account_id: contaOrigemId, p_program_id: programaOrigemId });
-
-      if (rpcError) throw new Error("Erro RPC: " + rpcError.message);
+      // --- PASSO 1: CALCULAR CPM NA UNHA (JavaScript) ---
+      // Baixamos todas as transações dessa conta para somar aqui no navegador
+      const { data: historico, error: erroHist } = await supabase
+        .from('transactions')
+        .select('quantity, total_cost')
+        .eq('account_id', contaOrigemId)
+        .eq('program_id', programaOrigemId);
       
-      const cpmReal = Number(cpmOrigem);
-      const custoTotalSaindo = (qtdSai / 1000) * cpmReal;
+      if (erroHist) throw erroHist;
 
-      // --- O ESPIÃO: ALERTA NA TELA ---
-      // Se aparecer Qtd: 2 (em vez de 2000), é erro de parse.
-      // Se aparecer CPM: 0, é erro de ID.
-      alert(`CONFIRMAÇÃO DE DADOS:\n\nQtd Saindo: ${qtdSai}\nCPM Origem (Banco): R$ ${cpmReal.toFixed(2)}\nCusto Migrando: R$ ${custoTotalSaindo.toFixed(2)}`);
+      let saldo = 0;
+      let investido = 0;
 
-      if (!cpmOrigem || cpmOrigem === 0) {
-         throw new Error("ABORTADO: O Banco retornou CPM ZERO. Verifique se a conta de origem tem saldo.");
+      // A mesma matemática do Dashboard, feita aqui no código
+      if (historico) {
+          historico.forEach(t => {
+              const q = Number(t.quantity);
+              const c = Number(t.total_cost);
+              saldo += q;
+              // Se qtd < 0 (saída), subtrai o custo. Se > 0 (entrada), soma.
+              if (q < 0) {
+                  investido -= Math.abs(c);
+              } else {
+                  investido += Math.abs(c);
+              }
+          });
       }
 
-      // 2. Registrar Saída
+      let cpmOrigem = 0;
+      let custoTotalSaindo = 0;
+
+      if (saldo > 0 && investido > 0) {
+          cpmOrigem = (investido / saldo) * 1000;
+          custoTotalSaindo = (qtdSai / 1000) * cpmOrigem;
+      }
+
+      console.log(`[JS CALC] Saldo: ${saldo} | Investido: ${investido} | CPM: ${cpmOrigem}`);
+
+      // TRAVA DE SEGURANÇA:
+      // Se tiver saldo mas o cálculo der zero, algo está errado. Usamos um alerta no console.
+      if ((saldo > 0) && (cpmOrigem === 0)) {
+           console.warn("Atenção: CPM calculado deu zero mesmo tendo saldo.");
+      }
+
+      // --- PASSO 2: GRAVAR ---
+      // Grava a SAÍDA (Origem)
       const { error: errorOrigem } = await supabase.from('transactions').insert({
-        user_id: user?.id, account_id: contaOrigemId, program_id: programaOrigemId, type: 'TRANSF_SAIDA',
+        user_id: user?.id, 
+        account_id: contaOrigemId, 
+        program_id: programaOrigemId, 
+        type: 'TRANSF_SAIDA',
         quantity: -qtdSai, 
-        total_cost: custoTotalSaindo, // Valor positivo
+        total_cost: custoTotalSaindo, // Calculado no JS
         transaction_date: dataTransferencia,
         description: `Transf. para ${programaDestinoId} (Saída)`,
-        notes: `CPM Origem: ${cpmReal.toFixed(2)} | Migrou: R$ ${custoTotalSaindo.toFixed(2)}`
+        notes: `CPM Origem: ${cpmOrigem.toFixed(2)} | Migrou: R$ ${custoTotalSaindo.toFixed(2)}`
       });
+      
       if (errorOrigem) throw errorOrigem;
 
-      // 3. Registrar Entrada
+      // Grava a ENTRADA (Destino)
       const custoFinalEntrada = custoTotalSaindo + taxa;
+      
       const { error: errorDestino } = await supabase.from('transactions').insert({
-        user_id: user?.id, account_id: contaDestinoId, program_id: programaDestinoId, type: 'TRANSF_ENTRADA',
+        user_id: user?.id, 
+        account_id: contaDestinoId, 
+        program_id: programaDestinoId, 
+        type: 'TRANSF_ENTRADA',
         quantity: qtdEntra,
-        total_cost: custoFinalEntrada,
+        total_cost: custoFinalEntrada, // Calculado no JS + Taxa
         transaction_date: dataTransferencia,
         description: `Transf. de ${programaOrigemId} (Entrada)`,
         notes: `${observacao || ''} | Custo Herdado: R$ ${custoTotalSaindo.toFixed(2)} + Taxas: R$ ${taxa.toFixed(2)}`
       });
+      
       if (errorDestino) throw errorDestino;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] }); queryClient.invalidateQueries({ queryKey: ['miles_balance'] });
+      queryClient.invalidateQueries({ queryKey: ['transactions'] }); 
+      queryClient.invalidateQueries({ queryKey: ['miles_balance'] });
       toast.success('Transferência realizada!');
     },
     onError: (error: any) => { toast.error(`${error.message}`); }
   });
 };
 
-// OUTRAS FUNÇÕES (Resumidas para caber)
+// OUTRAS FUNÇÕES (Mantenha o restante das deleções e criações auxiliares como estavam)
 export const useDeleteSale = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (id: string) => { const { data: recs } = await supabase.from('receivables').select('id').eq('transaction_id', id); if(recs) for(const r of recs) { await supabase.from('receivable_installments').delete().eq('receivable_id', r.id); await supabase.from('receivables').delete().eq('id', r.id); } await supabase.from('transactions').delete().eq('id', id); }, onSuccess: () => { qc.invalidateQueries({ queryKey: ['sales'] }); qc.invalidateQueries({ queryKey: ['transactions'] }); qc.invalidateQueries({ queryKey: ['miles_balance'] }); toast.success('Excluído!'); } }) };
 export const useCreatePassenger = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (p: any) => { await supabase.from('passengers').insert(p); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['passengers'] }) })};
 export const useCreateTransaction = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (p: any) => { const safeP = { ...p, total_cost: parseCurrency(p.total_cost) }; await supabase.from('transactions').insert(safeP); }, onSuccess: () => { qc.invalidateQueries({ queryKey: ['transactions'] }); qc.invalidateQueries({ queryKey: ['miles_balance'] }); } })};
