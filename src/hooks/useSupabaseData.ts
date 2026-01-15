@@ -21,9 +21,11 @@ export const useMilesBalance = () => useQuery({
     queryKey: ['miles_balance'], 
     queryFn: async () => {
         const { data } = await supabase.from('program_balance_summary').select('*');
+        
+        // Traduzimos os campos da View para o que o Front espera
         return data?.map((item: any) => ({
             ...item,
-            quantity: item.balance,
+            quantity: item.balance,           // A View chama de 'balance', o Front chama de 'quantity'
             total_invested: item.total_invested
         })) || [];
     } 
@@ -69,6 +71,7 @@ export const useCreateSale = () => {
       const quantidadeNegativa = -1 * qtdMilhas;
 
       // Cálculo de CPM para baixa de estoque
+      // Tenta calcular baseado no histórico para registrar o custo da baixa
       const { data: entradas } = await supabase
         .from('transactions')
         .select('quantity, total_cost')
@@ -159,7 +162,7 @@ export const useCreateSale = () => {
   });
 };
 
-// 2. NOVA FUNÇÃO: TRANSFERÊNCIA INTELIGENTE (CPM MIGRATÓRIO)
+// 2. TRANSFERÊNCIA INTELIGENTE (Versão Corrigida: Lê do Dashboard)
 export const useCreateTransfer = () => {
   const queryClient = useQueryClient();
 
@@ -183,43 +186,41 @@ export const useCreateTransfer = () => {
       const qtdEntra = Math.abs(parseFloat(quantidadeDestino));
       const taxa = parseCurrency(custoTransferencia);
 
-      // 1. Descobrir CPM da Origem
-      const { data: transacoesOrigem } = await supabase
-        .from('transactions')
-        .select('quantity, total_cost')
-        .eq('user_id', user?.id)
+      // --- PASSO 1: LER CPM DA ORIGEM DIRETO DO RESUMO ---
+      // Consulta a visão oficial que alimenta o Dashboard (que sabemos estar correta)
+      const { data: resumoOrigem, error: erroResumo } = await supabase
+        .from('program_balance_summary')
+        .select('balance, total_invested')
         .eq('account_id', contaOrigemId)
-        .eq('program_id', programaOrigemId);
+        .eq('program_id', programaOrigemId)
+        .maybeSingle();
 
-      let custoTotalSaindo = 0;
+      if (erroResumo) throw erroResumo;
+
       let cpmOrigem = 0;
+      let custoTotalSaindo = 0;
 
-      if (transacoesOrigem && transacoesOrigem.length > 0) {
-        let saldoQtd = 0;
-        let saldoInvestido = 0;
-
-        transacoesOrigem.forEach(t => {
-            saldoQtd += t.quantity;
-            if (t.quantity < 0) {
-                 saldoInvestido -= Math.abs(t.total_cost); 
-            } else {
-                 saldoInvestido += t.total_cost;
-            }
-        });
-
-        if (saldoQtd > 0 && saldoInvestido > 0) {
-            cpmOrigem = (saldoInvestido / saldoQtd) * 1000;
-            custoTotalSaindo = (qtdSai / 1000) * cpmOrigem;
-        }
+      if (resumoOrigem && Number(resumoOrigem.balance) > 0) {
+          const saldoAtual = Number(resumoOrigem.balance);
+          const investidoAtual = Number(resumoOrigem.total_invested);
+          
+          cpmOrigem = (investidoAtual / saldoAtual) * 1000;
+          
+          // O custo financeiro que migra é proporcional:
+          // (Qtd Saindo / 1000) * CPM Atual
+          custoTotalSaindo = (qtdSai / 1000) * cpmOrigem;
       }
 
-      // 2. Registrar Saída (Origem)
+      console.log(`Transferência: CPM Origem R$ ${cpmOrigem.toFixed(2)} | Migrando R$ ${custoTotalSaindo.toFixed(2)}`);
+
+      // --- PASSO 2: REGISTRAR SAÍDA ---
+      // Gravamos o custo como positivo. A View do banco saberá subtrair porque o tipo é SAIDA/negativo.
       const { error: errorOrigem } = await supabase.from('transactions').insert({
         user_id: user?.id,
         account_id: contaOrigemId,
         program_id: programaOrigemId,
         type: 'TRANSF_SAIDA',
-        quantity: -qtdSai,
+        quantity: -qtdSai, 
         total_cost: custoTotalSaindo, 
         transaction_date: dataTransferencia,
         description: `Transf. para ${programaDestinoId} (Saída)`,
@@ -228,7 +229,8 @@ export const useCreateTransfer = () => {
 
       if (errorOrigem) throw errorOrigem;
 
-      // 3. Registrar Entrada (Destino)
+      // --- PASSO 3: REGISTRAR ENTRADA ---
+      // O custo que chega é o que saiu da origem + as taxas pagas
       const custoFinalEntrada = custoTotalSaindo + taxa;
 
       const { error: errorDestino } = await supabase.from('transactions').insert({
