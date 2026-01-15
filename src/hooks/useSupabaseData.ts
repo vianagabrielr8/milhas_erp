@@ -209,20 +209,15 @@ export const useCreateTransfer = () => {
   });
 };
 
-/* AQUI ESTAVA O ERRO! 
-   Agora todas essas funções retornam o objeto criado (return data) 
-   usando .select().single() 
-*/
-
 // CRIAR TRANSAÇÃO GENÉRICA (Usado na Compra)
 export const useCreateTransaction = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (p: any) => {
       const safeP = { ...p, total_cost: parseCurrency(p.total_cost) };
-      const { data, error } = await supabase.from('transactions').insert(safeP).select().single(); // <--- CORRIGIDO
+      const { data, error } = await supabase.from('transactions').insert(safeP).select().single();
       if (error) throw error;
-      return data; // <--- RETORNA O DADO
+      return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
@@ -236,11 +231,11 @@ export const useCreatePayable = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (p: any) => {
-      const { data, error } = await supabase.from('payables').insert(p).select().single(); // <--- CORRIGIDO
+      const { data, error } = await supabase.from('payables').insert(p).select().single();
       if (error) throw error;
       return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['payable_installments'] })
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['payable_installments'] })
   });
 };
 
@@ -262,7 +257,7 @@ export const useCreateReceivable = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (p: any) => {
-      const { data, error } = await supabase.from('receivables').insert(p).select().single(); // <--- CORRIGIDO
+      const { data, error } = await supabase.from('receivables').insert(p).select().single();
       if (error) throw error;
       return data;
     },
@@ -288,4 +283,34 @@ export const useDeleteSale = () => { const qc = useQueryClient(); return useMuta
 export const useCreatePassenger = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (p: any) => { await supabase.from('passengers').insert(p); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['passengers'] }) })};
 export const useDeleteTransaction = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (id: string) => { await supabase.from('transactions').delete().eq('id', id); }, onSuccess: () => { qc.invalidateQueries({ queryKey: ['transactions'] }); qc.invalidateQueries({ queryKey: ['miles_balance'] }); } })};
 export const useUpdateTransaction = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async ({ id, ...updates }: any) => { const safeUpdates = { ...updates }; if (safeUpdates.total_cost) safeUpdates.total_cost = parseCurrency(safeUpdates.total_cost); const { error } = await supabase.from('transactions').update(safeUpdates).eq('id', id); if (error) throw error; }, onSuccess: () => { qc.invalidateQueries({ queryKey: ['transactions'] }); qc.invalidateQueries({ queryKey: ['miles_balance'] }); qc.invalidateQueries({ queryKey: ['sales'] }); toast.success('Atualizado!'); } }) };
-export const useCreateCreditCard = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (c: any) => {
+
+// AQUI ESTAVAM FALTANDO AS FUNÇÕES COMPLETAS DE CARTÃO
+export const useCreateCreditCard = () => { 
+    const qc = useQueryClient(); 
+    return useMutation({ 
+        mutationFn: async (c: any) => { 
+            await supabase.from('credit_cards').insert({...c, limit_amount: parseCurrency(c.limite)}); 
+        }, 
+        onSuccess: () => qc.invalidateQueries({ queryKey: ['credit_cards'] }) 
+    })
+};
+
+export const useUpdateCreditCard = () => { 
+    const qc = useQueryClient(); 
+    return useMutation({ 
+        mutationFn: async ({id, ...c}: any) => { 
+            await supabase.from('credit_cards').update({...c, limit_amount: parseCurrency(c.limite)}).eq('id', id); 
+        }, 
+        onSuccess: () => qc.invalidateQueries({ queryKey: ['credit_cards'] }) 
+    })
+};
+
+export const useDeleteCreditCard = () => { 
+    const qc = useQueryClient(); 
+    return useMutation({ 
+        mutationFn: async (id: string) => { 
+            await supabase.from('credit_cards').delete().eq('id', id); 
+        }, 
+        onSuccess: () => qc.invalidateQueries({ queryKey: ['credit_cards'] }) 
+    })
+};
