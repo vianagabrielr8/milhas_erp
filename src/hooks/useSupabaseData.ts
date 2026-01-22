@@ -41,7 +41,7 @@ export const usePayableInstallments = () => useQuery({ queryKey: ['payable_insta
 
 /* --- ESCRITA --- */
 
-// 1. CRIAR VENDA (Calculando CPM no Javascript)
+// 1. CRIAR VENDA (Com Lógica de Taxa Separada)
 export const useCreateSale = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -51,6 +51,7 @@ export const useCreateSale = () => {
       const qtdMilhas = Math.abs(parseCurrency(newSale.quantidade)); 
       const quantidadeNegativa = -1 * qtdMilhas;
 
+      // 1. Cálculo do CPM (Custo)
       const { data: historico } = await supabase
         .from('transactions')
         .select('quantity, total_cost')
@@ -78,6 +79,7 @@ export const useCreateSale = () => {
           custoDoEstoque = (qtdMilhas / 1000) * cpmAtual;
       }
 
+      // 2. Criar Transação de Venda (Estoque)
       const { data: transaction, error: transError } = await supabase.from('transactions')
         .insert({
             user_id: user?.id,
@@ -93,11 +95,13 @@ export const useCreateSale = () => {
 
       if (transError) throw transError;
 
+      // 3. Registrar Passageiros
       if (newSale.passageiros?.length > 0) {
           const passData = newSale.passageiros.map((p:any) => ({ user_id: user?.id, transaction_id: transaction.id, name: p.nome, cpf: p.cpf }));
           await supabase.from('passengers').insert(passData);
       }
 
+      // 4. Financeiro: Contas a Receber (VENDA)
       if (valorReceitaTotal > 0) {
         const { data: receivable, error: recError } = await supabase.from('receivables')
           .insert({
@@ -121,16 +125,63 @@ export const useCreateSale = () => {
             await supabase.from('receivable_installments').insert(installments);
         }
       }
+
+      // 5. --- LÓGICA DE TAXA EM DINHEIRO (SEPARADA) ---
+      const taxDetails = newSale.taxDetails;
+      if (taxDetails && taxDetails.hasTax && taxDetails.type === 'MONEY') {
+          const taxVal = parseCurrency(taxDetails.amount);
+          
+          // A. Contas a Pagar (Custo da Taxa no Cartão)
+          const { data: payable } = await supabase.from('payables').insert({
+              user_id: user?.id,
+              transaction_id: transaction.id, // Vincula à venda para rastreio
+              credit_card_id: taxDetails.cardId,
+              description: `Pgto Taxa Embarque - Venda #${transaction.id.slice(0, 8)}`,
+              total_amount: taxVal,
+              installments: 1
+          }).select().single();
+
+          if (payable) {
+              await supabase.from('payable_installments').insert({
+                  user_id: user?.id,
+                  payable_id: payable.id,
+                  installment_number: 1,
+                  amount: taxVal,
+                  due_date: taxDetails.cardDueDate, // Data calculada no frontend
+                  status: 'PENDENTE'
+              });
+          }
+
+          // B. Contas a Receber (Reembolso da Taxa)
+          const { data: taxRec } = await supabase.from('receivables').insert({
+              user_id: user?.id,
+              transaction_id: transaction.id,
+              description: `Reembolso Taxa - Venda #${transaction.id.slice(0, 8)}`,
+              total_amount: taxVal,
+              installments: 1
+          }).select().single();
+
+          if (taxRec) {
+              await supabase.from('receivable_installments').insert({
+                  user_id: user?.id,
+                  receivable_id: taxRec.id,
+                  installment_number: 1,
+                  amount: taxVal,
+                  due_date: newSale.dataRecebimento, // Recebe junto com a venda
+                  status: 'PENDENTE'
+              });
+          }
+      }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['sales'] }); queryClient.invalidateQueries({ queryKey: ['transactions'] }); queryClient.invalidateQueries({ queryKey: ['miles_balance'] }); queryClient.invalidateQueries({ queryKey: ['receivable_installments'] });
+      queryClient.invalidateQueries({ queryKey: ['sales'] }); queryClient.invalidateQueries({ queryKey: ['transactions'] }); queryClient.invalidateQueries({ queryKey: ['miles_balance'] }); queryClient.invalidateQueries({ queryKey: ['receivable_installments'] }); queryClient.invalidateQueries({ queryKey: ['payable_installments'] });
       toast.success('Venda registrada!');
     },
     onError: (error: any) => toast.error(`Erro: ${error.message}`)
   });
 };
 
-// 2. TRANSFERÊNCIA (Versão JS Limpa)
+// 2. TRANSFERÊNCIA (Mantida igual)
 export const useCreateTransfer = () => {
   const queryClient = useQueryClient();
 
@@ -209,7 +260,7 @@ export const useCreateTransfer = () => {
   });
 };
 
-// CRIAR TRANSAÇÃO GENÉRICA (Usado na Compra)
+// OUTRAS FUNÇÕES (Mantidas iguais)
 export const useCreateTransaction = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -226,7 +277,6 @@ export const useCreateTransaction = () => {
   });
 };
 
-// CRIAR CONTA A PAGAR
 export const useCreatePayable = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -239,7 +289,6 @@ export const useCreatePayable = () => {
   });
 };
 
-// CRIAR PARCELAS A PAGAR
 export const useCreatePayableInstallments = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -252,7 +301,6 @@ export const useCreatePayableInstallments = () => {
   });
 };
 
-// CRIAR CONTA A RECEBER
 export const useCreateReceivable = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -265,7 +313,6 @@ export const useCreateReceivable = () => {
   });
 };
 
-// CRIAR PARCELAS A RECEBER
 export const useCreateReceivableInstallments = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -284,7 +331,6 @@ export const useCreatePassenger = () => { const qc = useQueryClient(); return us
 export const useDeleteTransaction = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (id: string) => { await supabase.from('transactions').delete().eq('id', id); }, onSuccess: () => { qc.invalidateQueries({ queryKey: ['transactions'] }); qc.invalidateQueries({ queryKey: ['miles_balance'] }); } })};
 export const useUpdateTransaction = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async ({ id, ...updates }: any) => { const safeUpdates = { ...updates }; if (safeUpdates.total_cost) safeUpdates.total_cost = parseCurrency(safeUpdates.total_cost); const { error } = await supabase.from('transactions').update(safeUpdates).eq('id', id); if (error) throw error; }, onSuccess: () => { qc.invalidateQueries({ queryKey: ['transactions'] }); qc.invalidateQueries({ queryKey: ['miles_balance'] }); qc.invalidateQueries({ queryKey: ['sales'] }); toast.success('Atualizado!'); } }) };
 
-// AQUI ESTAVAM FALTANDO AS FUNÇÕES COMPLETAS DE CARTÃO
 export const useCreateCreditCard = () => { 
     const qc = useQueryClient(); 
     return useMutation({ 
