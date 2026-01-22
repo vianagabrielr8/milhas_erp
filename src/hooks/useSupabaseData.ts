@@ -181,7 +181,7 @@ export const useCreateSale = () => {
   });
 };
 
-// 2. TRANSFERÊNCIA (Mantida igual)
+// 2. TRANSFERÊNCIA (Versão JS Limpa)
 export const useCreateTransfer = () => {
   const queryClient = useQueryClient();
 
@@ -260,7 +260,7 @@ export const useCreateTransfer = () => {
   });
 };
 
-// OUTRAS FUNÇÕES (Mantidas iguais)
+// OUTRAS FUNÇÕES
 export const useCreateTransaction = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -325,7 +325,7 @@ export const useCreateReceivableInstallments = () => {
   });
 };
 
-// OUTRAS AUXILIARES
+// AUXILIARES E CARTÃO
 export const useDeleteSale = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (id: string) => { const { data: recs } = await supabase.from('receivables').select('id').eq('transaction_id', id); if(recs) for(const r of recs) { await supabase.from('receivable_installments').delete().eq('receivable_id', r.id); await supabase.from('receivables').delete().eq('id', r.id); } await supabase.from('transactions').delete().eq('id', id); }, onSuccess: () => { qc.invalidateQueries({ queryKey: ['sales'] }); qc.invalidateQueries({ queryKey: ['transactions'] }); qc.invalidateQueries({ queryKey: ['miles_balance'] }); toast.success('Excluído!'); } }) };
 export const useCreatePassenger = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (p: any) => { await supabase.from('passengers').insert(p); }, onSuccess: () => qc.invalidateQueries({ queryKey: ['passengers'] }) })};
 export const useDeleteTransaction = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (id: string) => { await supabase.from('transactions').delete().eq('id', id); }, onSuccess: () => { qc.invalidateQueries({ queryKey: ['transactions'] }); qc.invalidateQueries({ queryKey: ['miles_balance'] }); } })};
