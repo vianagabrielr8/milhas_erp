@@ -12,6 +12,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+// IMPORTANTE: Certifique-se de que o arquivo src/components/ui/radio-group.tsx existe
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"; 
 import { 
     Select, 
     SelectContent, 
@@ -32,6 +34,7 @@ import {
   AlertTriangle,
   CalendarCheck,
   Loader2,
+  Plane, // Ícone da Taxa de Embarque
 } from 'lucide-react';
 
 import { toast } from 'sonner';
@@ -105,6 +108,11 @@ export function TransactionModal({
   const [expirationDate, setExpirationDate] = useState('');
   const [notes, setNotes] = useState('');
 
+  // --- NOVOS ESTADOS PARA TAXAS ---
+  const [hasTax, setHasTax] = useState(false);
+  const [taxType, setTaxType] = useState<'MONEY' | 'MILES'>('MONEY');
+  const [taxAmount, setTaxAmount] = useState(''); 
+
   const [useCreditCard, setUseCreditCard] = useState(false);
   const [selectedCardId, setSelectedCardId] = useState('');
   const [installmentCount, setInstallmentCount] = useState('1');
@@ -138,6 +146,11 @@ export function TransactionModal({
       setManualDueDate(hoje);
       setExpirationDate('');
       setNotes('');
+      // Reset Taxas
+      setHasTax(false);
+      setTaxType('MONEY');
+      setTaxAmount('');
+      
       setUseCreditCard(false);
       setSelectedCardId('');
       setInstallmentCount('1');
@@ -147,12 +160,40 @@ export function TransactionModal({
     }
   }, [open]);
 
-  const calculatedTotal = useMemo(() => {
-    const q = Number(quantity);
-    const p = Number(pricePerThousand);
-    if (q <= 0 || p <= 0) return 0;
-    return (q / 1000) * p;
-  }, [quantity, pricePerThousand]);
+  // --- CÁLCULOS PRINCIPAIS COM TAXAS ---
+  const finalValues = useMemo(() => {
+    const baseQ = Number(quantity) || 0;
+    const price = Number(pricePerThousand) || 0;
+    const taxVal = Number(taxAmount) || 0;
+
+    let finalQty = baseQ;
+    // Receita Base = (Qtd Milhas / 1000) * Preço Milheiro
+    let finalRevenue = (baseQ / 1000) * price;
+
+    if (hasTax && taxVal > 0) {
+        if (taxType === 'MONEY') {
+            // LÓGICA DINHEIRO:
+            // Quantidade de milhas não muda.
+            // Receita aumenta (Valor da Venda + Valor da Taxa).
+            finalRevenue += taxVal;
+        } else {
+            // LÓGICA MILHAS:
+            // Quantidade de milhas aumenta (sai mais do estoque).
+            // Receita é recalculada sobre a nova quantidade TOTAL de milhas.
+            finalQty += taxVal;
+            finalRevenue = (finalQty / 1000) * price;
+        }
+    }
+
+    return { 
+        qty: finalQty, 
+        revenue: finalRevenue,
+        baseRevenue: (baseQ / 1000) * price // Para mostrar subtotais
+    };
+  }, [quantity, pricePerThousand, hasTax, taxType, taxAmount]);
+
+  // O Total Calculado usado pelo resto do sistema agora é o Final (com taxas)
+  const calculatedTotal = finalValues.revenue;
 
   const firstPaymentDate = useMemo(() => {
     if (useCreditCard && selectedCardId) {
@@ -192,14 +233,14 @@ export function TransactionModal({
   }, [programas, programId]);
 
   const saleProfit = useMemo(() => {
-    const q = Number(quantity);
-    if (q <= 0 || !calculatedTotal) return null;
+    // Calculamos o lucro baseado na quantidade FINAL de milhas que saiu do estoque
+    if (finalValues.qty <= 0 || !finalValues.revenue) return null;
     return calculateSaleProfit(
-      calculatedTotal,
-      q,
+      finalValues.revenue,
+      finalValues.qty,
       avgCpm / 1000,
     );
-  }, [calculatedTotal, quantity, avgCpm]);
+  }, [finalValues, avgCpm]);
 
   const purchaseCpm = useMemo(() => {
     return Number(pricePerThousand);
@@ -262,7 +303,20 @@ export function TransactionModal({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Usuário não logado');
 
-      const qty = Math.abs(Number(quantity));
+      // Quantidade FINAL (incluindo taxas em milhas, se houver)
+      const qty = Math.abs(finalValues.qty);
+
+      // Receita FINAL (incluindo taxa em dinheiro ou valor das milhas extras)
+      const revenue = finalValues.revenue;
+
+      // Adicionar info da taxa nas observações automaticamente
+      let finalNotes = notes;
+      if (hasTax && Number(taxAmount) > 0) {
+          const taxInfo = taxType === 'MONEY' 
+            ? `Taxa: R$ ${formatCurrency(Number(taxAmount))}` 
+            : `Taxa: ${Number(taxAmount)} milhas`;
+          finalNotes = notes ? `${notes} | ${taxInfo}` : taxInfo;
+      }
 
       // 1. TRANSAÇÃO PRINCIPAL
       const transaction = await createTransaction.mutateAsync({
@@ -271,21 +325,21 @@ export function TransactionModal({
         type: transactionType,
         quantity:
           transactionType === 'VENDA' || transactionType === 'USO' || transactionType === 'TRANSF_SAIDA' || transactionType === 'EXPIROU'
-            ? -qty
+            ? -qty // Sai negativo do estoque
             : qty,
         total_cost:
           (transactionType === 'COMPRA' || transactionType === 'TRANSF_ENTRADA' || transactionType === 'BONUS')
-            ? calculatedTotal
+            ? revenue
             : null,
         sale_price:
           transactionType === 'VENDA'
-            ? calculatedTotal
+            ? revenue
             : null,
         transaction_date: transactionDate,
         expiration_date: expirationDate || null,
-        notes: notes || null,
+        notes: finalNotes || null,
         supplier_id: supplierId || null,
-        client_id: clientId || null, // client_id (Passageiro) para a transação
+        client_id: clientId || null,
         user_id: user.id,
       });
 
@@ -298,7 +352,7 @@ export function TransactionModal({
               ? selectedCardId
               : null,
             description: 'Compra de Milhas', 
-            total_amount: calculatedTotal,
+            total_amount: revenue,
             installments: Number(installmentCount),
             user_id: user.id,
           });
@@ -324,14 +378,14 @@ export function TransactionModal({
             const receivable = await createReceivable.mutateAsync({
                 transaction_id: transaction.id,
                 description,
-                total_amount: calculatedTotal,
+                total_amount: revenue, 
                 installments: Number(saleInstallments),
                 user_id: user.id,
             });
 
             await createReceivableInstallments.mutateAsync(
                 generateInstallments(
-                    calculatedTotal,
+                    revenue,
                     Number(saleInstallments),
                     new Date(firstReceiveDate)
                 ).map(i => ({
@@ -474,21 +528,74 @@ export function TransactionModal({
 
           <Separator />
             
-            {/* QUANTIDADE E CPM */}
+            {/* QUANTIDADE E VALOR UNITÁRIO */}
             <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                    <Label>Quantidade de Milhas *</Label>
+                    <Label>Quantidade de Milhas (Base) *</Label>
                     <Input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} placeholder="Ex: 50000" min="1" required />
                 </div>
                 <div className="space-y-2">
-                    <Label>{transactionType === 'VENDA' ? 'Valor Venda (Milheiro) *' : 'Valor Compra (Milheiro) *'}</Label>
+                    <Label>{transactionType === 'VENDA' ? 'Valor Unitário (R$/1000) *' : 'Valor Compra (Milheiro) *'}</Label>
                     <div className="space-y-1">
                         {/* AQUI ESTÁ A MUDANÇA: step="0.000001" permite alta precisão */}
-                        <Input type="number" step="0.000001" value={pricePerThousand} onChange={e => setPricePerThousand(e.target.value)} placeholder="Ex: 17.50" min="0" required />
-                        <div className="text-right text-sm font-medium text-muted-foreground">Total: {formatCurrency(calculatedTotal)}</div>
+                        <Input type="number" step="0.000001" value={pricePerThousand} onChange={e => setPricePerThousand(e.target.value)} placeholder="Ex: 20.50" min="0" required />
+                        <div className="text-right text-sm font-medium text-muted-foreground">
+                            Subtotal: {formatCurrency(finalValues.baseRevenue)}
+                        </div>
                     </div>
                 </div>
             </div>
+
+            {/* --- SEÇÃO DE TAXAS (NOVA) --- */}
+            {transactionType === 'VENDA' && (
+                <Card className="bg-primary/5 border-primary/20">
+                    <CardContent className="pt-4 space-y-4">
+                        <div className="flex items-center justify-between">
+                            <Label className="flex items-center gap-2 cursor-pointer font-semibold text-primary">
+                                <Plane className="h-4 w-4" />
+                                Incluir Taxas de Embarque?
+                            </Label>
+                            <Switch checked={hasTax} onCheckedChange={setHasTax} />
+                        </div>
+
+                        {hasTax && (
+                            <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
+                                <div className="space-y-2">
+                                    <Label>Como a taxa foi paga?</Label>
+                                    <RadioGroup value={taxType} onValueChange={(v) => setTaxType(v as 'MONEY' | 'MILES')} className="flex gap-4">
+                                        <div className="flex items-center space-x-2 border p-2 rounded w-full hover:bg-muted/50 cursor-pointer">
+                                            <RadioGroupItem value="MONEY" id="r1" />
+                                            <Label htmlFor="r1" className="cursor-pointer flex-1">Em Dinheiro (R$)</Label>
+                                        </div>
+                                        <div className="flex items-center space-x-2 border p-2 rounded w-full hover:bg-muted/50 cursor-pointer">
+                                            <RadioGroupItem value="MILES" id="r2" />
+                                            <Label htmlFor="r2" className="cursor-pointer flex-1">Em Milhas</Label>
+                                        </div>
+                                    </RadioGroup>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label>
+                                        {taxType === 'MONEY' ? 'Valor da Taxa (R$)' : 'Quantidade de Milhas da Taxa'}
+                                    </Label>
+                                    <Input 
+                                        type="number" 
+                                        value={taxAmount} 
+                                        onChange={e => setTaxAmount(e.target.value)} 
+                                        placeholder={taxType === 'MONEY' ? "0,00" : "0"}
+                                        step={taxType === 'MONEY' ? "0.01" : "1"}
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        {taxType === 'MONEY' 
+                                            ? "Esse valor será somado ao Contas a Receber." 
+                                            : `Serão descontadas mais ${taxAmount || 0} milhas do estoque e o valor financeiro subirá proporcionalmente.`}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            )}
 
             {/* PREVIEWS DE CPM E LUCRO */}
             {transactionType === 'COMPRA' && purchaseCpm > 0 && (
@@ -504,9 +611,14 @@ export function TransactionModal({
             {transactionType === 'VENDA' && saleProfit && (
                 <Card className={saleProfit.profit >= 0 ? 'bg-success/10 border-success/30' : 'bg-destructive/10 border-destructive/30'}>
                     <CardContent className="pt-4 space-y-2">
-                        <div className="flex items-center gap-2 mb-2">
-                            {saleProfit.profit >= 0 ? (<TrendingUp className="h-4 w-4 text-success" />) : (<AlertTriangle className="h-4 w-4 text-destructive" />)}
-                            <span className="font-medium">Previsão de Lucro</span>
+                        <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                                {saleProfit.profit >= 0 ? (<TrendingUp className="h-4 w-4 text-success" />) : (<AlertTriangle className="h-4 w-4 text-destructive" />)}
+                                <span className="font-medium">Previsão Final</span>
+                            </div>
+                            <div className="text-right text-xs text-muted-foreground">
+                                Total a Receber: <span className="font-bold text-foreground text-sm">{formatCurrency(finalValues.revenue)}</span>
+                            </div>
                         </div>
                         <div className="grid grid-cols-3 gap-4 text-sm">
                             <div><span className="text-muted-foreground">Lucro Total</span><div className={`font-bold ${saleProfit.profit >= 0 ? 'text-success' : 'text-destructive'}`}>{formatCurrency(saleProfit.profit)}</div></div>
