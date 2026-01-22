@@ -18,9 +18,9 @@ import {
     useSales, 
     useCreateSale, 
     useDeleteSale,
-    useCreditCards // <--- Novo import
+    useCreditCards // <--- IMPORTANTE: Importar os cartões
 } from '@/hooks/useSupabaseData';
-import { calculateCardDates } from '@/utils/financeLogic'; // Certifique-se que esta função existe em utils
+import { calculateCardDates } from '@/utils/financeLogic';
 
 // LISTA DE FILTRO: Só estas aparecerão no formulário de venda
 const AEREAS_PERMITIDAS = ['LATAM PASS', 'SMILES', 'TAP MILES&GO', 'TUDO AZUL'];
@@ -35,7 +35,7 @@ const Vendas = () => {
     const { data: vendas = [], isLoading } = useSales();
     const { data: programas = [] } = usePrograms();
     const { data: contas = [] } = useAccounts();
-    const { data: cartoes = [] } = useCreditCards(); // <--- Buscando cartões
+    const { data: cartoes = [] } = useCreditCards(); // <--- Busca os cartões
     
     const createSaleMutation = useCreateSale();
     const deleteSaleMutation = useDeleteSale();
@@ -50,7 +50,7 @@ const Vendas = () => {
     const [hasTax, setHasTax] = useState(false);
     const [taxType, setTaxType] = useState<'MONEY' | 'MILES'>('MONEY');
     const [taxAmount, setTaxAmount] = useState('');
-    const [taxCardId, setTaxCardId] = useState(''); // <--- Novo estado para cartão da taxa
+    const [taxCardId, setTaxCardId] = useState(''); // <--- Estado do cartão da taxa
 
     const [formData, setFormData] = useState({
         programaId: '',
@@ -113,27 +113,30 @@ const Vendas = () => {
             return;
         }
 
-        // Validação da Taxa em Dinheiro
+        // Validação da Taxa em Dinheiro: Exige cartão
         if (hasTax && taxType === 'MONEY' && !taxCardId) {
             toast.error('Selecione o cartão usado para pagar a taxa.');
             return;
         }
 
-        // --- CÁLCULOS ---
+        // --- CÁLCULOS FINAIS ---
         let quantidadeFinal = parseInt(formData.quantidade);
+        
         const valUnitString = formData.valorUnitario.toString().replace(',', '.');
         const valorUnitario = parseFloat(valUnitString);
         
-        // Valor Base da Venda (Receita Real)
-        let valorVendaReal = (quantidadeFinal / 1000) * valorUnitario;
-        
+        // Tratamento da Vírgula na Taxa (A CORREÇÃO PRINCIPAL ESTÁ AQUI)
+        const taxString = taxAmount.toString().replace(',', '.');
+        const taxaValor = parseFloat(taxString) || 0;
+
+        // Valor base da venda (sem taxas)
+        let valorTotalFinal = (quantidadeFinal / 1000) * valorUnitario;
+
         // Variáveis para o payload
         let taxPayload = null;
         let observacaoFinal = formData.observacoes;
 
-        if (hasTax && Number(taxAmount) > 0) {
-            const taxaValor = Number(taxAmount);
-            
+        if (hasTax && taxaValor > 0) {
             if (taxType === 'MONEY') {
                 // LÓGICA DINHEIRO:
                 // Não mexe na quantidade nem no valor da venda.
@@ -142,9 +145,14 @@ const Vendas = () => {
                 // Calcular vencimento do cartão para a taxa
                 let dataVencimentoCartao = formData.dataVenda; 
                 const cartao = cartoes.find(c => c.id === taxCardId);
+                
                 if (cartao) {
-                    const datas = calculateCardDates(new Date(formData.dataVenda), cartao.closing_day, cartao.due_day);
-                    dataVencimentoCartao = format(datas.dueDate, 'yyyy-MM-dd');
+                    try {
+                        const datas = calculateCardDates(new Date(formData.dataVenda), cartao.closing_day, cartao.due_day);
+                        dataVencimentoCartao = format(datas.dueDate, 'yyyy-MM-dd');
+                    } catch (err) {
+                        console.error("Erro data cartao", err);
+                    }
                 }
 
                 taxPayload = {
@@ -160,17 +168,16 @@ const Vendas = () => {
                 // LÓGICA MILHAS:
                 // Soma no estoque (sai mais milhas).
                 // Valor total sobe proporcionalmente (para cobrir custo).
-                // Não gera lançamentos financeiros extras separados.
                 quantidadeFinal += taxaValor;
-                valorVendaReal = (quantidadeFinal / 1000) * valorUnitario;
+                valorTotalFinal = (quantidadeFinal / 1000) * valorUnitario;
                 observacaoFinal += ` | Taxa: ${taxaValor} milhas`;
                 
                 taxPayload = { hasTax: true, type: 'MILES' };
             }
         }
 
-        if (isNaN(valorVendaReal) || valorVendaReal <= 0) {
-             if(!confirm("O valor total da venda parece zerado. Deseja continuar?")) return;
+        if (isNaN(valorTotalFinal) || valorTotalFinal <= 0) {
+             if(!confirm("O valor total da venda parece zerado. Deseja continuar mesmo assim?")) return;
         }
 
         const vendaData = {
@@ -178,7 +185,7 @@ const Vendas = () => {
             contaId: formData.contaId,
             quantidade: quantidadeFinal, 
             valorUnitario, 
-            valorTotal: valorVendaReal, // Aqui vai só o valor da venda (ou venda+milhas extras)
+            valorTotal: valorTotalFinal, // Valor APENAS da venda (ou venda+milhas extras)
             dataVenda: formData.dataVenda,
             dataRecebimento: formData.dataRecebimento,
             status: formData.status,
@@ -209,7 +216,6 @@ const Vendas = () => {
         }));
     };
 
-    // Colunas da Tabela
     const columns = [
         {
             key: 'dataVenda',
@@ -327,7 +333,7 @@ const Vendas = () => {
                                                 type="text" 
                                                 value={novoPassageiro.cpf}
                                                 onChange={(e) => setNovoPassageiro({ ...novoPassageiro, cpf: e.target.value })}
-                                                placeholder="000..."
+                                                placeholder="000.000.000-00"
                                             />
                                         </div>
                                         <div className="col-span-2 space-y-1">
@@ -337,7 +343,7 @@ const Vendas = () => {
                                                     type="text" 
                                                     value={novoPassageiro.nome}
                                                     onChange={(e) => setNovoPassageiro({ ...novoPassageiro, nome: e.target.value })}
-                                                    placeholder="Nome"
+                                                    placeholder="Nome do Passageiro"
                                                 />
                                                 <Button type="button" size="icon" onClick={handleAddPassageiro} className="h-10 w-10">
                                                     <UserPlus className="h-4 w-4" />
@@ -348,7 +354,7 @@ const Vendas = () => {
 
                                     <div className="max-h-28 overflow-y-auto space-y-1 mt-2">
                                         {passageirosVenda.length === 0 ? (
-                                            <p className="text-xs text-muted-foreground pt-1">Adicione o(s) CPF(s).</p>
+                                            <p className="text-xs text-muted-foreground pt-1">Adicione o(s) CPF(s) que consumirá(ão) a cota.</p>
                                         ) : (
                                             passageirosVenda.map(p => (
                                                 <div key={p.id} className="flex justify-between items-center bg-background p-2 rounded text-sm border">
@@ -365,7 +371,6 @@ const Vendas = () => {
                                     </div>
                                 </div>
 
-                                {/* Valores */}
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <Label>Quantidade de Milhas</Label>
@@ -389,7 +394,7 @@ const Vendas = () => {
                                     </div>
                                 </div>
 
-                                {/* --- SEÇÃO DE TAXAS --- */}
+                                {/* --- SEÇÃO DE TAXAS (NOVA) --- */}
                                 <div className="bg-primary/5 p-4 rounded-lg border border-primary/20 space-y-4">
                                     <div className="flex items-center justify-between">
                                         <Label className="flex items-center gap-2 cursor-pointer font-semibold text-primary">
@@ -420,12 +425,16 @@ const Vendas = () => {
                                                     {taxType === 'MONEY' ? 'Valor da Taxa (R$)' : 'Qtd Milhas da Taxa'}
                                                 </Label>
                                                 <Input 
-                                                    type="number" 
+                                                    type="text" 
                                                     value={taxAmount} 
                                                     onChange={e => setTaxAmount(e.target.value)} 
                                                     placeholder={taxType === 'MONEY' ? "0,00" : "0"}
-                                                    step={taxType === 'MONEY' ? "0.01" : "1"}
                                                 />
+                                                <p className="text-xs text-muted-foreground">
+                                                    {taxType === 'MONEY' 
+                                                        ? "Cria contas a pagar e receber separadas." 
+                                                        : "Desconta mais milhas do estoque."}
+                                                </p>
                                             </div>
 
                                             {/* SELEÇÃO DE CARTÃO (SÓ APARECE SE FOR DINHEIRO) */}
@@ -452,7 +461,7 @@ const Vendas = () => {
                                     )}
                                 </div>
 
-                                {/* DATAS */}
+                                {/* DATAS: VENDA E RECEBIMENTO */}
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <Label>Data da Venda</Label>
@@ -478,7 +487,7 @@ const Vendas = () => {
                                     </div>
                                 </div>
 
-                                {/* Parcelamento da Venda (Apenas Venda) */}
+                                {/* Parcelamento da Venda */}
                                 {formData.status === 'pendente' && (
                                     <div className="space-y-2 border-t pt-4 bg-muted/20 p-3 rounded-lg">
                                         <Label className="text-primary font-medium">Parcelamento da Venda</Label>
@@ -494,7 +503,7 @@ const Vendas = () => {
                                                 />
                                             </div>
                                             
-                                            {/* Previsão Visual (Calcula SEM a taxa, pois é separado) */}
+                                            {/* Previsão Visual */}
                                             <div className="flex-1 text-sm text-muted-foreground bg-muted/50 p-3 rounded border">
                                                 <p className="font-medium mb-2 text-xs uppercase tracking-wide">Previsão Recebimento</p>
                                                 <div className="max-h-32 overflow-y-auto text-xs space-y-2 pr-1 custom-scrollbar">
@@ -510,8 +519,10 @@ const Vendas = () => {
                                                         const valUnit = parseFloat(valUnitString) || 0;
                                                         
                                                         // Se for milhas, a venda é maior, então parcela é maior
-                                                        if (hasTax && taxType === 'MILES' && Number(taxAmount) > 0) {
-                                                            qtd += Number(taxAmount);
+                                                        if (hasTax && taxType === 'MILES') {
+                                                            const taxString = taxAmount.toString().replace(',', '.');
+                                                            const tx = parseFloat(taxString) || 0;
+                                                            if (tx > 0) qtd += tx;
                                                         }
                                                         
                                                         const total = (qtd/1000) * valUnit;
