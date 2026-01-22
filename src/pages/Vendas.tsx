@@ -7,7 +7,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Trash2, User, UserPlus, X, CalendarIcon } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"; 
+import { Plus, Trash2, User, UserPlus, X, CalendarIcon, Plane } from 'lucide-react';
 import { format, addDays } from 'date-fns';
 import { toast } from 'sonner';
 import { usePrograms, useAccounts, useSales, useCreateSale, useDeleteSale } from '@/hooks/useSupabaseData';
@@ -35,6 +37,11 @@ const Vendas = () => {
     const [passageirosVenda, setPassageirosVenda] = useState<PassageiroVenda[]>([]);
     const [novoPassageiro, setNovoPassageiro] = useState({ nome: '', cpf: '' });
 
+    // ESTADOS PARA TAXAS
+    const [hasTax, setHasTax] = useState(false);
+    const [taxType, setTaxType] = useState<'MONEY' | 'MILES'>('MONEY');
+    const [taxAmount, setTaxAmount] = useState('');
+
     const [formData, setFormData] = useState({
         programaId: '',
         contaId: '',
@@ -46,13 +53,10 @@ const Vendas = () => {
         observacoes: '',
     });
 
-    // Filtra os programas para mostrar apenas as aéreas desejadas
     const programasFiltrados = useMemo(() => {
         if (!programas) return [];
         return programas.filter(p => {
             const nome = p.name.toUpperCase();
-            // Verifica se o nome do programa contém algum dos nomes permitidos
-            // (Usamos 'includes' para ser flexível caso esteja escrito "LATAM PASS (BR)" por exemplo)
             return AEREAS_PERMITIDAS.some(aerea => nome.includes(aerea));
         });
     }, [programas]);
@@ -71,6 +75,9 @@ const Vendas = () => {
         setParcelas(1);
         setPassageirosVenda([]);
         setNovoPassageiro({ nome: '', cpf: '' });
+        setHasTax(false);
+        setTaxType('MONEY');
+        setTaxAmount('');
     };
 
     const handleAddPassageiro = () => {
@@ -95,28 +102,48 @@ const Vendas = () => {
             return;
         }
 
-        const quantidade = parseInt(formData.quantidade);
+        // --- CÁLCULOS FINAIS COM TAXAS ---
+        let quantidadeFinal = parseInt(formData.quantidade);
         
-        // CORREÇÃO CRÍTICA: Troca vírgula por ponto ANTES de converter
         const valUnitString = formData.valorUnitario.toString().replace(',', '.');
         const valorUnitario = parseFloat(valUnitString);
         
-        const valorTotal = (quantidade / 1000) * valorUnitario;
+        // Valor base da venda (sem taxas)
+        let valorTotalFinal = (quantidadeFinal / 1000) * valorUnitario;
 
-        if (isNaN(valorTotal) || valorTotal <= 0) {
+        // Info para observação
+        let observacaoFinal = formData.observacoes;
+
+        if (hasTax && Number(taxAmount) > 0) {
+            const taxaValor = Number(taxAmount);
+            
+            if (taxType === 'MONEY') {
+                // Taxa em Dinheiro: Soma ao total financeiro
+                valorTotalFinal += taxaValor;
+                observacaoFinal += ` | Taxa: R$ ${taxaValor.toFixed(2)}`;
+            } else {
+                // Taxa em Milhas: Soma à quantidade que sai do estoque
+                // O valor financeiro total sobe proporcionalmente ao preço do milheiro
+                quantidadeFinal += taxaValor;
+                valorTotalFinal = (quantidadeFinal / 1000) * valorUnitario;
+                observacaoFinal += ` | Taxa: ${taxaValor} milhas`;
+            }
+        }
+
+        if (isNaN(valorTotalFinal) || valorTotalFinal <= 0) {
              if(!confirm("O valor total da venda parece zerado. Deseja continuar mesmo assim?")) return;
         }
 
         const vendaData = {
             programaId: formData.programaId,
             contaId: formData.contaId,
-            quantidade,
+            quantidade: quantidadeFinal, // Quantidade FINAL (pode incluir taxa milhas)
             valorUnitario, 
-            valorTotal,    
+            valorTotal: valorTotalFinal, // Valor FINAL (pode incluir taxa dinheiro)
             dataVenda: formData.dataVenda,
             dataRecebimento: formData.dataRecebimento,
             status: formData.status,
-            observacoes: formData.observacoes,
+            observacoes: observacaoFinal,
             passageiros: passageirosVenda, 
             parcelas: parcelas, 
         };
@@ -176,7 +203,7 @@ const Vendas = () => {
         {
             key: 'valorTotal',
             header: 'Valor Total',
-            render: (venda: any) =>
+            render: (venda: any) => 
                 new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(venda.total_cost || 0),
         },
         {
@@ -194,8 +221,8 @@ const Vendas = () => {
 
     return (
         <MainLayout>
-            <PageHeader
-                title="Vendas"
+            <PageHeader 
+                title="Vendas" 
                 description="Gerencie suas vendas de milhas"
                 action={
                     <Dialog open={isOpen} onOpenChange={(open) => { setIsOpen(open); if (!open) resetForm(); }}>
@@ -214,13 +241,12 @@ const Vendas = () => {
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <Label>Programa</Label>
-                                        <Select
-                                            value={formData.programaId}
+                                        <Select 
+                                            value={formData.programaId} 
                                             onValueChange={(value) => setFormData({ ...formData, programaId: value })}
                                         >
                                             <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                                             <SelectContent>
-                                                {/* AQUI ESTÁ O FILTRO APLICADO */}
                                                 {programasFiltrados.map((programa: any) => (
                                                     <SelectItem key={programa.id} value={programa.id}>
                                                         {programa.name}
@@ -231,8 +257,8 @@ const Vendas = () => {
                                     </div>
                                     <div className="space-y-2">
                                         <Label>Conta</Label>
-                                        <Select
-                                            value={formData.contaId}
+                                        <Select 
+                                            value={formData.contaId} 
                                             onValueChange={(value) => setFormData({ ...formData, contaId: value })}
                                         >
                                             <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
@@ -256,8 +282,8 @@ const Vendas = () => {
                                     <div className="grid grid-cols-3 gap-2">
                                         <div className="col-span-1 space-y-1">
                                             <Label className="text-xs">CPF</Label>
-                                            <Input
-                                                type="text"
+                                            <Input 
+                                                type="text" 
                                                 value={novoPassageiro.cpf}
                                                 onChange={(e) => setNovoPassageiro({ ...novoPassageiro, cpf: e.target.value })}
                                                 placeholder="000.000.000-00"
@@ -266,8 +292,8 @@ const Vendas = () => {
                                         <div className="col-span-2 space-y-1">
                                             <Label className="text-xs">Nome Completo</Label>
                                             <div className="flex gap-2">
-                                                <Input
-                                                    type="text"
+                                                <Input 
+                                                    type="text" 
                                                     value={novoPassageiro.nome}
                                                     onChange={(e) => setNovoPassageiro({ ...novoPassageiro, nome: e.target.value })}
                                                     placeholder="Nome do Passageiro"
@@ -301,8 +327,8 @@ const Vendas = () => {
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <Label>Quantidade de Milhas</Label>
-                                        <Input
-                                            type="number"
+                                        <Input 
+                                            type="number" 
                                             value={formData.quantidade}
                                             onChange={(e) => setFormData({ ...formData, quantidade: e.target.value })}
                                             placeholder="10000"
@@ -311,8 +337,8 @@ const Vendas = () => {
                                     </div>
                                     <div className="space-y-2">
                                         <Label>Valor Unitário (R$/1000)</Label>
-                                        <Input
-                                            type="text"
+                                        <Input 
+                                            type="text" 
                                             value={formData.valorUnitario}
                                             onChange={(e) => setFormData({ ...formData, valorUnitario: e.target.value })}
                                             placeholder="20,50"
@@ -321,12 +347,59 @@ const Vendas = () => {
                                     </div>
                                 </div>
 
+                                {/* --- SEÇÃO DE TAXAS (NOVA) --- */}
+                                <div className="bg-primary/5 p-4 rounded-lg border border-primary/20 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <Label className="flex items-center gap-2 cursor-pointer font-semibold text-primary">
+                                            <Plane className="h-4 w-4" />
+                                            Incluir Taxas de Embarque?
+                                        </Label>
+                                        <Switch checked={hasTax} onCheckedChange={setHasTax} />
+                                    </div>
+
+                                    {hasTax && (
+                                        <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
+                                            <div className="space-y-2">
+                                                <Label>Como a taxa foi paga?</Label>
+                                                <RadioGroup value={taxType} onValueChange={(v) => setTaxType(v as 'MONEY' | 'MILES')} className="flex gap-4">
+                                                    <div className="flex items-center space-x-2 border p-2 rounded w-full hover:bg-muted/50 cursor-pointer bg-background">
+                                                        <RadioGroupItem value="MONEY" id="r1" />
+                                                        <Label htmlFor="r1" className="cursor-pointer flex-1">Dinheiro (R$)</Label>
+                                                    </div>
+                                                    <div className="flex items-center space-x-2 border p-2 rounded w-full hover:bg-muted/50 cursor-pointer bg-background">
+                                                        <RadioGroupItem value="MILES" id="r2" />
+                                                        <Label htmlFor="r2" className="cursor-pointer flex-1">Milhas</Label>
+                                                    </div>
+                                                </RadioGroup>
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label>
+                                                    {taxType === 'MONEY' ? 'Valor da Taxa (R$)' : 'Qtd Milhas da Taxa'}
+                                                </Label>
+                                                <Input 
+                                                    type="number" 
+                                                    value={taxAmount} 
+                                                    onChange={e => setTaxAmount(e.target.value)} 
+                                                    placeholder={taxType === 'MONEY' ? "0,00" : "0"}
+                                                    step={taxType === 'MONEY' ? "0.01" : "1"}
+                                                />
+                                                <p className="text-xs text-muted-foreground">
+                                                    {taxType === 'MONEY' 
+                                                        ? "Soma ao total a receber." 
+                                                        : "Desconta mais milhas do estoque."}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
                                 {/* DATAS: VENDA E RECEBIMENTO */}
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <Label>Data da Venda</Label>
-                                        <Input
-                                            type="date"
+                                        <Input 
+                                            type="date" 
                                             value={formData.dataVenda}
                                             onChange={(e) => handleDateChange(e.target.value)}
                                             required
@@ -337,8 +410,8 @@ const Vendas = () => {
                                             <CalendarIcon className="h-4 w-4" />
                                             Recebimento (1ª Parc)
                                         </Label>
-                                        <Input
-                                            type="date"
+                                        <Input 
+                                            type="date" 
                                             value={formData.dataRecebimento}
                                             onChange={(e) => setFormData({ ...formData, dataRecebimento: e.target.value })}
                                             required
@@ -354,9 +427,9 @@ const Vendas = () => {
                                         <div className="flex gap-4 items-start">
                                             <div className="w-1/3 space-y-2">
                                                 <Label className="text-xs text-muted-foreground">Qtd Parcelas</Label>
-                                                <Input
-                                                    type="number"
-                                                    min="1"
+                                                <Input 
+                                                    type="number" 
+                                                    min="1" 
                                                     max="24"
                                                     value={parcelas}
                                                     onChange={(e) => setParcelas(Number(e.target.value))}
@@ -369,15 +442,24 @@ const Vendas = () => {
                                                 <div className="max-h-32 overflow-y-auto text-xs space-y-2 pr-1 custom-scrollbar">
                                                     {Array.from({ length: Math.max(1, parcelas) }).map((_, i) => {
                                                         const dataBase = formData.dataRecebimento ? new Date(formData.dataRecebimento) : new Date();
-                                                        // Ajuste de timezone visual
                                                         const dataPrevista = new Date(dataBase.valueOf() + dataBase.getTimezoneOffset() * 60000);
                                                         
                                                         if (i > 0) dataPrevista.setMonth(dataPrevista.getMonth() + i);
                                                         
-                                                        const qtd = parseInt(formData.quantidade) || 0;
+                                                        // Cálculo Visual da Parcela (incluindo taxas)
+                                                        let qtd = parseInt(formData.quantidade) || 0;
                                                         const valUnitString = formData.valorUnitario.toString().replace(',', '.');
                                                         const valUnit = parseFloat(valUnitString) || 0;
-                                                        const total = (qtd/1000) * valUnit;
+                                                        let total = (qtd/1000) * valUnit;
+
+                                                        if (hasTax && Number(taxAmount) > 0) {
+                                                            if (taxType === 'MONEY') total += Number(taxAmount);
+                                                            else {
+                                                                qtd += Number(taxAmount);
+                                                                total = (qtd/1000) * valUnit;
+                                                            }
+                                                        }
+
                                                         const valorParc = total / (parcelas || 1);
                                                         
                                                         return (
@@ -395,7 +477,7 @@ const Vendas = () => {
                                 
                                 <div className="space-y-2">
                                     <Label>Observações</Label>
-                                    <Input
+                                    <Input 
                                         value={formData.observacoes}
                                         onChange={(e) => setFormData({ ...formData, observacoes: e.target.value })}
                                         placeholder="Observações (opcional)"
@@ -416,10 +498,10 @@ const Vendas = () => {
                 }
             />
 
-            <DataTable
-                data={vendas}
-                columns={columns}
-                emptyMessage={isLoading ? "Carregando vendas..." : "Nenhuma venda registrada."}
+            <DataTable 
+                data={vendas} 
+                columns={columns} 
+                emptyMessage={isLoading ? "Carregando vendas..." : "Nenhuma venda registrada."} 
             />
         </MainLayout>
     );
