@@ -37,7 +37,17 @@ export const useMilesBalance = () => useQuery({
 export const useExpiringMiles = () => useQuery({ queryKey: ['expiring_miles'], queryFn: async () => (await supabase.from('expiring_miles').select('*').order('expiration_date')).data || [] });
 export const useSales = () => useQuery({ queryKey: ['sales'], queryFn: async () => (await supabase.from('transactions').select('*').eq('type', 'VENDA').order('transaction_date', { ascending: false })).data || [] });
 export const useReceivableInstallments = () => useQuery({ queryKey: ['receivable_installments'], queryFn: async () => (await supabase.from('receivable_installments').select(`*, receivables (description, total_amount)`).order('due_date')).data || [] });
-export const usePayableInstallments = () => useQuery({ queryKey: ['payable_installments'], queryFn: async () => (await supabase.from('payable_installments').select(`*, payables (description, credit_cards (name))`).order('due_date')).data || [] });
+
+// --- AQUI ESTÁ A CORREÇÃO PARA O "CONTAS A PAGAR" (Busca 'installments') ---
+export const usePayableInstallments = () => useQuery({ 
+    queryKey: ['payable_installments'], 
+    queryFn: async () => (await supabase
+        .from('payable_installments')
+        // Adicionei ", installments" dentro do select de payables
+        .select(`*, payables (description, installments, credit_cards (name))`) 
+        .order('due_date')
+    ).data || [] 
+});
 
 /* --- ESCRITA --- */
 
@@ -181,7 +191,7 @@ export const useCreateSale = () => {
   });
 };
 
-// 2. TRANSFERÊNCIA (Versão JS Limpa)
+// 2. TRANSFERÊNCIA
 export const useCreateTransfer = () => {
   const queryClient = useQueryClient();
 
