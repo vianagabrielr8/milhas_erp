@@ -9,10 +9,18 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"; 
-import { Plus, Trash2, User, UserPlus, X, CalendarIcon, Plane } from 'lucide-react';
+import { Plus, Trash2, User, UserPlus, X, CalendarIcon, Plane, CreditCard } from 'lucide-react';
 import { format, addDays } from 'date-fns';
 import { toast } from 'sonner';
-import { usePrograms, useAccounts, useSales, useCreateSale, useDeleteSale } from '@/hooks/useSupabaseData';
+import { 
+    usePrograms, 
+    useAccounts, 
+    useSales, 
+    useCreateSale, 
+    useDeleteSale,
+    useCreditCards // <--- Novo import
+} from '@/hooks/useSupabaseData';
+import { calculateCardDates } from '@/utils/financeLogic'; // Certifique-se que esta função existe em utils
 
 // LISTA DE FILTRO: Só estas aparecerão no formulário de venda
 const AEREAS_PERMITIDAS = ['LATAM PASS', 'SMILES', 'TAP MILES&GO', 'TUDO AZUL'];
@@ -27,6 +35,7 @@ const Vendas = () => {
     const { data: vendas = [], isLoading } = useSales();
     const { data: programas = [] } = usePrograms();
     const { data: contas = [] } = useAccounts();
+    const { data: cartoes = [] } = useCreditCards(); // <--- Buscando cartões
     
     const createSaleMutation = useCreateSale();
     const deleteSaleMutation = useDeleteSale();
@@ -41,6 +50,7 @@ const Vendas = () => {
     const [hasTax, setHasTax] = useState(false);
     const [taxType, setTaxType] = useState<'MONEY' | 'MILES'>('MONEY');
     const [taxAmount, setTaxAmount] = useState('');
+    const [taxCardId, setTaxCardId] = useState(''); // <--- Novo estado para cartão da taxa
 
     const [formData, setFormData] = useState({
         programaId: '',
@@ -78,6 +88,7 @@ const Vendas = () => {
         setHasTax(false);
         setTaxType('MONEY');
         setTaxAmount('');
+        setTaxCardId('');
     };
 
     const handleAddPassageiro = () => {
@@ -102,50 +113,79 @@ const Vendas = () => {
             return;
         }
 
-        // --- CÁLCULOS FINAIS COM TAXAS ---
+        // Validação da Taxa em Dinheiro
+        if (hasTax && taxType === 'MONEY' && !taxCardId) {
+            toast.error('Selecione o cartão usado para pagar a taxa.');
+            return;
+        }
+
+        // --- CÁLCULOS ---
         let quantidadeFinal = parseInt(formData.quantidade);
-        
         const valUnitString = formData.valorUnitario.toString().replace(',', '.');
         const valorUnitario = parseFloat(valUnitString);
         
-        // Valor base da venda (sem taxas)
-        let valorTotalFinal = (quantidadeFinal / 1000) * valorUnitario;
-
-        // Info para observação
+        // Valor Base da Venda (Receita Real)
+        let valorVendaReal = (quantidadeFinal / 1000) * valorUnitario;
+        
+        // Variáveis para o payload
+        let taxPayload = null;
         let observacaoFinal = formData.observacoes;
 
         if (hasTax && Number(taxAmount) > 0) {
             const taxaValor = Number(taxAmount);
             
             if (taxType === 'MONEY') {
-                // Taxa em Dinheiro: Soma ao total financeiro
-                valorTotalFinal += taxaValor;
-                observacaoFinal += ` | Taxa: R$ ${taxaValor.toFixed(2)}`;
+                // LÓGICA DINHEIRO:
+                // Não mexe na quantidade nem no valor da venda.
+                // Prepara o payload extra para o hook criar os lançamentos separados.
+                
+                // Calcular vencimento do cartão para a taxa
+                let dataVencimentoCartao = formData.dataVenda; 
+                const cartao = cartoes.find(c => c.id === taxCardId);
+                if (cartao) {
+                    const datas = calculateCardDates(new Date(formData.dataVenda), cartao.closing_day, cartao.due_day);
+                    dataVencimentoCartao = format(datas.dueDate, 'yyyy-MM-dd');
+                }
+
+                taxPayload = {
+                    hasTax: true,
+                    type: 'MONEY',
+                    amount: taxaValor,
+                    cardId: taxCardId,
+                    cardDueDate: dataVencimentoCartao
+                };
+                observacaoFinal += ` | Taxa Paga: R$ ${taxaValor.toFixed(2)}`;
+
             } else {
-                // Taxa em Milhas: Soma à quantidade que sai do estoque
-                // O valor financeiro total sobe proporcionalmente ao preço do milheiro
+                // LÓGICA MILHAS:
+                // Soma no estoque (sai mais milhas).
+                // Valor total sobe proporcionalmente (para cobrir custo).
+                // Não gera lançamentos financeiros extras separados.
                 quantidadeFinal += taxaValor;
-                valorTotalFinal = (quantidadeFinal / 1000) * valorUnitario;
+                valorVendaReal = (quantidadeFinal / 1000) * valorUnitario;
                 observacaoFinal += ` | Taxa: ${taxaValor} milhas`;
+                
+                taxPayload = { hasTax: true, type: 'MILES' };
             }
         }
 
-        if (isNaN(valorTotalFinal) || valorTotalFinal <= 0) {
-             if(!confirm("O valor total da venda parece zerado. Deseja continuar mesmo assim?")) return;
+        if (isNaN(valorVendaReal) || valorVendaReal <= 0) {
+             if(!confirm("O valor total da venda parece zerado. Deseja continuar?")) return;
         }
 
         const vendaData = {
             programaId: formData.programaId,
             contaId: formData.contaId,
-            quantidade: quantidadeFinal, // Quantidade FINAL (pode incluir taxa milhas)
+            quantidade: quantidadeFinal, 
             valorUnitario, 
-            valorTotal: valorTotalFinal, // Valor FINAL (pode incluir taxa dinheiro)
+            valorTotal: valorVendaReal, // Aqui vai só o valor da venda (ou venda+milhas extras)
             dataVenda: formData.dataVenda,
             dataRecebimento: formData.dataRecebimento,
             status: formData.status,
             observacoes: observacaoFinal,
             passageiros: passageirosVenda, 
             parcelas: parcelas, 
+            taxDetails: taxPayload // Enviamos os detalhes para o hook processar
         };
 
         createSaleMutation.mutate(vendaData, {
@@ -169,6 +209,7 @@ const Vendas = () => {
         }));
     };
 
+    // Colunas da Tabela
     const columns = [
         {
             key: 'dataVenda',
@@ -286,7 +327,7 @@ const Vendas = () => {
                                                 type="text" 
                                                 value={novoPassageiro.cpf}
                                                 onChange={(e) => setNovoPassageiro({ ...novoPassageiro, cpf: e.target.value })}
-                                                placeholder="000.000.000-00"
+                                                placeholder="000..."
                                             />
                                         </div>
                                         <div className="col-span-2 space-y-1">
@@ -296,7 +337,7 @@ const Vendas = () => {
                                                     type="text" 
                                                     value={novoPassageiro.nome}
                                                     onChange={(e) => setNovoPassageiro({ ...novoPassageiro, nome: e.target.value })}
-                                                    placeholder="Nome do Passageiro"
+                                                    placeholder="Nome"
                                                 />
                                                 <Button type="button" size="icon" onClick={handleAddPassageiro} className="h-10 w-10">
                                                     <UserPlus className="h-4 w-4" />
@@ -307,7 +348,7 @@ const Vendas = () => {
 
                                     <div className="max-h-28 overflow-y-auto space-y-1 mt-2">
                                         {passageirosVenda.length === 0 ? (
-                                            <p className="text-xs text-muted-foreground pt-1">Adicione o(s) CPF(s) que consumirá(ão) a cota.</p>
+                                            <p className="text-xs text-muted-foreground pt-1">Adicione o(s) CPF(s).</p>
                                         ) : (
                                             passageirosVenda.map(p => (
                                                 <div key={p.id} className="flex justify-between items-center bg-background p-2 rounded text-sm border">
@@ -324,6 +365,7 @@ const Vendas = () => {
                                     </div>
                                 </div>
 
+                                {/* Valores */}
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <Label>Quantidade de Milhas</Label>
@@ -347,7 +389,7 @@ const Vendas = () => {
                                     </div>
                                 </div>
 
-                                {/* --- SEÇÃO DE TAXAS (NOVA) --- */}
+                                {/* --- SEÇÃO DE TAXAS --- */}
                                 <div className="bg-primary/5 p-4 rounded-lg border border-primary/20 space-y-4">
                                     <div className="flex items-center justify-between">
                                         <Label className="flex items-center gap-2 cursor-pointer font-semibold text-primary">
@@ -384,17 +426,33 @@ const Vendas = () => {
                                                     placeholder={taxType === 'MONEY' ? "0,00" : "0"}
                                                     step={taxType === 'MONEY' ? "0.01" : "1"}
                                                 />
-                                                <p className="text-xs text-muted-foreground">
-                                                    {taxType === 'MONEY' 
-                                                        ? "Soma ao total a receber." 
-                                                        : "Desconta mais milhas do estoque."}
-                                                </p>
                                             </div>
+
+                                            {/* SELEÇÃO DE CARTÃO (SÓ APARECE SE FOR DINHEIRO) */}
+                                            {taxType === 'MONEY' && (
+                                                <div className="space-y-2 animate-in fade-in">
+                                                    <Label className="flex items-center gap-2">
+                                                        <CreditCard className="h-4 w-4" /> Cartão utilizado na taxa
+                                                    </Label>
+                                                    <Select value={taxCardId} onValueChange={setTaxCardId}>
+                                                        <SelectTrigger className="bg-background">
+                                                            <SelectValue placeholder="Selecione o cartão" />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {cartoes.map((card: any) => (
+                                                                <SelectItem key={card.id} value={card.id}>
+                                                                    {card.name} (Fecha: {card.closing_day})
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>
 
-                                {/* DATAS: VENDA E RECEBIMENTO */}
+                                {/* DATAS */}
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <Label>Data da Venda</Label>
@@ -420,10 +478,10 @@ const Vendas = () => {
                                     </div>
                                 </div>
 
-                                {/* Parcelamento */}
+                                {/* Parcelamento da Venda (Apenas Venda) */}
                                 {formData.status === 'pendente' && (
                                     <div className="space-y-2 border-t pt-4 bg-muted/20 p-3 rounded-lg">
-                                        <Label className="text-primary font-medium">Parcelamento</Label>
+                                        <Label className="text-primary font-medium">Parcelamento da Venda</Label>
                                         <div className="flex gap-4 items-start">
                                             <div className="w-1/3 space-y-2">
                                                 <Label className="text-xs text-muted-foreground">Qtd Parcelas</Label>
@@ -436,9 +494,9 @@ const Vendas = () => {
                                                 />
                                             </div>
                                             
-                                            {/* Previsão Visual */}
+                                            {/* Previsão Visual (Calcula SEM a taxa, pois é separado) */}
                                             <div className="flex-1 text-sm text-muted-foreground bg-muted/50 p-3 rounded border">
-                                                <p className="font-medium mb-2 text-xs uppercase tracking-wide">Previsão</p>
+                                                <p className="font-medium mb-2 text-xs uppercase tracking-wide">Previsão Recebimento</p>
                                                 <div className="max-h-32 overflow-y-auto text-xs space-y-2 pr-1 custom-scrollbar">
                                                     {Array.from({ length: Math.max(1, parcelas) }).map((_, i) => {
                                                         const dataBase = formData.dataRecebimento ? new Date(formData.dataRecebimento) : new Date();
@@ -446,20 +504,17 @@ const Vendas = () => {
                                                         
                                                         if (i > 0) dataPrevista.setMonth(dataPrevista.getMonth() + i);
                                                         
-                                                        // Cálculo Visual da Parcela (incluindo taxas)
+                                                        // Cálculo Visual (Só da Venda)
                                                         let qtd = parseInt(formData.quantidade) || 0;
                                                         const valUnitString = formData.valorUnitario.toString().replace(',', '.');
                                                         const valUnit = parseFloat(valUnitString) || 0;
-                                                        let total = (qtd/1000) * valUnit;
-
-                                                        if (hasTax && Number(taxAmount) > 0) {
-                                                            if (taxType === 'MONEY') total += Number(taxAmount);
-                                                            else {
-                                                                qtd += Number(taxAmount);
-                                                                total = (qtd/1000) * valUnit;
-                                                            }
+                                                        
+                                                        // Se for milhas, a venda é maior, então parcela é maior
+                                                        if (hasTax && taxType === 'MILES' && Number(taxAmount) > 0) {
+                                                            qtd += Number(taxAmount);
                                                         }
-
+                                                        
+                                                        const total = (qtd/1000) * valUnit;
                                                         const valorParc = total / (parcelas || 1);
                                                         
                                                         return (
