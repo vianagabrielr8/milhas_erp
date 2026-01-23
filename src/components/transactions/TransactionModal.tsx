@@ -60,12 +60,21 @@ import {
 
 import { Database } from '@/integrations/supabase/types';
 
-// --- CORREÇÃO DE DATA 1: Função para pegar data local segura ---
-const getLocalDate = () => {
-  const now = new Date();
-  const offset = now.getTimezoneOffset() * 60000;
-  const localDate = new Date(now.getTime() - offset);
-  return localDate.toISOString().split('T')[0];
+// --- UTILITÁRIO 1: PEGAR DATA DE HOJE SEM ERRO DE FUSO ---
+// Retorna string "YYYY-MM-DD" baseada no horário local do navegador
+const getTodayString = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+// --- UTILITÁRIO 2: CRIAR DATA SEGURA PARA CÁLCULOS ---
+// Adiciona T12:00:00 para garantir que o fuso horário não jogue pro dia anterior
+const createSafeDate = (dateString: string) => {
+    if (!dateString) return new Date();
+    return new Date(`${dateString}T12:00:00`);
 };
 
 type TransactionType =
@@ -92,13 +101,13 @@ export function TransactionModal({
   const createReceivable = useCreateReceivable();
   const createReceivableInstallments = useCreateReceivableInstallments();
 
-  // IDs reais
+  // IDs
   const [accountId, setAccountId] = useState('');
   const [programId, setProgramId] = useState('');
   const [clientId, setClientId] = useState(''); 
   const [supplierId, setSupplierId] = useState(''); 
 
-  // Campos de busca (Inputs)
+  // Inputs de Busca
   const [searchConta, setSearchConta] = useState('');
   const [searchPrograma, setSearchPrograma] = useState('');
   const [searchPassageiro, setSearchPassageiro] = useState('');
@@ -107,8 +116,8 @@ export function TransactionModal({
   const [quantity, setQuantity] = useState('');
   const [pricePerThousand, setPricePerThousand] = useState('');
   
-  // --- CORREÇÃO DE DATA 2: Inicializar com getLocalDate() ---
-  const [transactionDate, setTransactionDate] = useState(getLocalDate());
+  // --- DATAS (Inicializa como string simples) ---
+  const [transactionDate, setTransactionDate] = useState(getTodayString());
   const [expirationDate, setExpirationDate] = useState('');
   const [notes, setNotes] = useState('');
 
@@ -120,18 +129,18 @@ export function TransactionModal({
   const [useCreditCard, setUseCreditCard] = useState(false);
   const [selectedCardId, setSelectedCardId] = useState('');
   const [installmentCount, setInstallmentCount] = useState('1');
-  const [manualDueDate, setManualDueDate] = useState(getLocalDate());
+  const [manualDueDate, setManualDueDate] = useState(getTodayString());
 
   const [useInstallments, setUseInstallments] = useState(false);
   const [saleInstallments, setSaleInstallments] = useState('1');
-  const [firstReceiveDate, setFirstReceiveDate] = useState(getLocalDate());
+  const [firstReceiveDate, setFirstReceiveDate] = useState(getTodayString());
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // RESET AO ABRIR
+  // RESET
   useEffect(() => {
     if (open) {
-      const hoje = getLocalDate(); // Usa data local segura
+      const hoje = getTodayString();
       setAccountId('');
       setProgramId('');
       setClientId('');
@@ -158,7 +167,7 @@ export function TransactionModal({
     }
   }, [open]);
 
-  // Lógica visual dos dropdowns
+  // Lógica Visual Dropdowns
   const showContaList = searchConta && !contas?.some(c => c.name === searchConta);
   const showProgramaList = searchPrograma && !programas?.some(p => p.name === searchPrograma);
   const showPassageiroList = searchPassageiro && !passageiros?.some(p => p.name === searchPassageiro);
@@ -189,21 +198,22 @@ export function TransactionModal({
 
   const calculatedTotal = finalValues.revenue;
 
-  // --- CORREÇÃO DE DATA 3: Adicionar T12:00:00 para forçar meio-dia ---
+  // --- CÁLCULO DE DATA DO CARTÃO (USANDO DATA SEGURA COM MEIO-DIA) ---
   const firstPaymentDate = useMemo(() => {
     if (useCreditCard && selectedCardId) {
       const card = creditCards?.find(c => c.id === selectedCardId);
       if (card) {
         return calculateCardDates(
-          new Date(transactionDate + 'T12:00:00'), // Força meio-dia
+          createSafeDate(transactionDate), // AQUI: Força meio-dia
           card.closing_day,
           card.due_day,
         );
       }
     }
-    return manualDueDate && !isNaN(new Date(manualDueDate).getTime())
-      ? new Date(manualDueDate + 'T12:00:00') // Força meio-dia
-      : new Date(transactionDate + 'T12:00:00'); // Força meio-dia
+    // Pagamento manual
+    return manualDueDate 
+      ? createSafeDate(manualDueDate) // AQUI: Força meio-dia
+      : createSafeDate(transactionDate);
   }, [useCreditCard, selectedCardId, transactionDate, manualDueDate, creditCards]);
 
   const installmentPreview = useMemo(() => {
@@ -263,6 +273,13 @@ export function TransactionModal({
           finalNotes = notes ? `${notes} | ${taxInfo}` : taxInfo;
       }
 
+      // --- O PULO DO GATO NO ENVIO ---
+      // Enviamos a string PURA (ex: "2026-01-23"). 
+      // Não convertemos para Date() antes de enviar.
+      // O Supabase recebe string no campo Date e grava exatamente o que recebeu.
+      const safeTransactionDate = transactionDate; 
+      const safeExpirationDate = expirationDate || null;
+
       // 1. TRANSAÇÃO PRINCIPAL
       const transaction = await createTransaction.mutateAsync({
         account_id: accountId,
@@ -280,8 +297,8 @@ export function TransactionModal({
           transactionType === 'VENDA'
             ? revenue
             : null,
-        transaction_date: transactionDate, // Aqui enviamos string YYYY-MM-DD, então OK
-        expiration_date: expirationDate || null,
+        transaction_date: safeTransactionDate, // ENVIA STRING PURA
+        expiration_date: safeExpirationDate,   // ENVIA STRING PURA
         notes: finalNotes || null,
         supplier_id: supplierId || null,
         client_id: clientId || null,
@@ -304,6 +321,7 @@ export function TransactionModal({
             payable_id: payable.id,
             installment_number: i.installmentNumber,
             amount: i.amount,
+            // Formatamos a data calculada (que já foi protegida com T12:00:00) de volta para string YYYY-MM-DD
             due_date: format(i.dueDate, 'yyyy-MM-dd'),
             status: 'pendente',
             user_id: user.id,
@@ -325,9 +343,11 @@ export function TransactionModal({
                 user_id: user.id,
             });
 
-            // --- CORREÇÃO DE DATA 4: Forçar meio-dia no recebimento ---
+            // Gera parcelas usando data segura (Meio-dia)
+            const safeReceivingDate = createSafeDate(firstReceiveDate);
+
             await createReceivableInstallments.mutateAsync(
-                generateInstallments(revenue, Number(saleInstallments), new Date(firstReceiveDate + 'T12:00:00')).map(i => ({
+                generateInstallments(revenue, Number(saleInstallments), safeReceivingDate).map(i => ({
                     receivable_id: receivable.id,
                     installment_number: i.installmentNumber,
                     amount: i.amount,
@@ -654,7 +674,7 @@ export function TransactionModal({
                                         variant="ghost"
                                         size="sm"
                                         className="h-6 text-xs text-primary"
-                                        onClick={() => setManualDueDate(getLocalDate())}
+                                        onClick={() => setManualDueDate(getTodayString())}
                                     >
                                         <CalendarCheck className="w-3 h-3 mr-1"/>
                                         Pagar Hoje
