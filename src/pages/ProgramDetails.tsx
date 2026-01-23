@@ -9,8 +9,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useTransactions, usePrograms, useAccounts, useDeleteTransaction, useUpdateTransaction } from '@/hooks/useSupabaseData';
-import { formatCurrency, formatNumber } from '@/utils/financeLogic';
-import { ArrowLeft, History, ArrowUpRight, ArrowDownRight, Filter, Plus, Trash2, Pencil, Save } from 'lucide-react';
+import { formatCurrency, formatNumber, formatCPM } from '@/utils/financeLogic'; // Adicionei formatCPM se existir, senão use formatCurrency
+import { ArrowLeft, History, ArrowUpRight, ArrowDownRight, Filter, Plus, Trash2, Pencil, Save, TrendingUp } from 'lucide-react';
 import { TransactionModal } from '@/components/transactions/TransactionModal';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -20,15 +20,13 @@ const ProgramDetails = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   
-  const [isModalOpen, setIsModalOpen] = useState(false); // Modal de Nova Transação
-  const [isEditOpen, setIsEditOpen] = useState(false);   // Modal de Edição
-  const [editingTrans, setEditingTrans] = useState<any>(null); // Transação sendo editada
+  const [isModalOpen, setIsModalOpen] = useState(false); 
+  const [isEditOpen, setIsEditOpen] = useState(false);   
+  const [editingTrans, setEditingTrans] = useState<any>(null); 
 
-  // Hooks
   const deleteTransactionMutation = useDeleteTransaction();
   const updateTransactionMutation = useUpdateTransaction();
 
-  // Filtros
   const urlAccountId = searchParams.get('accountId') || 'all';
   const [selectedAccount, setSelectedAccount] = useState(urlAccountId);
 
@@ -57,7 +55,6 @@ const ProgramDetails = () => {
     navigate(url);
   };
 
-  // --- AÇÕES ---
   const handleDelete = (transactionId: string) => {
     if (confirm('Tem certeza que deseja excluir esta transação? O saldo será recalculado.')) {
         deleteTransactionMutation.mutate(transactionId);
@@ -82,7 +79,7 @@ const ProgramDetails = () => {
           id: editingTrans.id,
           transaction_date: editingTrans.transaction_date,
           quantity: parseInt(editingTrans.quantity),
-          total_cost: editingTrans.total_cost, // O Hook vai tratar a moeda
+          total_cost: editingTrans.total_cost,
           description: editingTrans.description
       }, {
           onSuccess: () => setIsEditOpen(false)
@@ -103,13 +100,22 @@ const ProgramDetails = () => {
       .sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime());
   }, [transactions, id, selectedAccount]);
 
+  // --- CÁLCULO CORRIGIDO (NETO) ---
   const totals = useMemo(() => {
     const entradas = history.filter(t => t.quantity > 0).reduce((acc, t) => acc + t.quantity, 0);
     const saidas = history.filter(t => t.quantity < 0).reduce((acc, t) => acc + Math.abs(t.quantity), 0);
     const saldo = entradas - saidas;
-    const custoTotalEntradas = history.filter(t => t.quantity > 0).reduce((acc, t) => acc + (t.total_cost || 0), 0);
-    const cpmMedio = saldo > 0 ? (custoTotalEntradas / entradas) * 1000 : 0;
-    return { entradas, saidas, saldo, cpmMedio };
+    
+    // Calcula o "Dinheiro em Estoque": Soma custo das entradas, Subtrai custo das saídas
+    const investidoLiquido = history.reduce((acc, t) => {
+        if (t.quantity > 0) return acc + (Number(t.total_cost) || 0);
+        else return acc - (Number(t.total_cost) || 0); // Saídas reduzem o investimento
+    }, 0);
+
+    // CPM = Dinheiro no Estoque / Milhas no Estoque
+    const cpmAtual = saldo > 0 ? (investidoLiquido / saldo) * 1000 : 0;
+    
+    return { entradas, saidas, saldo, cpmAtual };
   }, [history]);
 
   const getTypeStyle = (type: string) => {
@@ -194,9 +200,11 @@ const ProgramDetails = () => {
                 </CardContent>
             </Card>
             <Card>
-                <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">CPM Médio (Entradas)</CardTitle></CardHeader>
+                {/* RÓTULO CORRIGIDO: CPM Atual */}
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2"><TrendingUp className="h-4 w-4"/> CPM Atual</CardTitle></CardHeader>
                 <CardContent>
-                    <div className="text-3xl font-bold text-primary">{formatCurrency(totals.cpmMedio)}</div>
+                    {/* FÓRMULA CORRIGIDA */}
+                    <div className="text-3xl font-bold text-primary">R$ {totals.cpmAtual.toFixed(2).replace('.', ',')}</div>
                 </CardContent>
             </Card>
             <Card>
