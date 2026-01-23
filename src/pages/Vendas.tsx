@@ -11,6 +11,7 @@ import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"; 
 import { Plus, Trash2, User, UserPlus, X, CalendarIcon, Plane, CreditCard } from 'lucide-react';
 import { format, addDays } from 'date-fns';
+import { ptBR } from 'date-fns/locale'; // IMPORTANTE
 import { toast } from 'sonner';
 import { 
     usePrograms, 
@@ -18,9 +19,18 @@ import {
     useSales, 
     useCreateSale, 
     useDeleteSale,
-    useCreditCards // <--- IMPORTANTE: Importar os cartões
+    useCreditCards
 } from '@/hooks/useSupabaseData';
 import { calculateCardDates } from '@/utils/financeLogic';
+
+// --- FUNÇÃO DE DATA SEGURA (FIX) ---
+const formatDateSafe = (dateString: string) => {
+    if (!dateString) return '-';
+    // Se a string for YYYY-MM-DD simples, adiciona T12:00:00 para travar no meio-dia
+    // Se já tiver horário (T...), usa como está
+    const safeDate = dateString.includes('T') ? dateString : `${dateString}T12:00:00`;
+    return format(new Date(safeDate), 'dd/MM/yyyy', { locale: ptBR });
+};
 
 // LISTA DE FILTRO: Só estas aparecerão no formulário de venda
 const AEREAS_PERMITIDAS = ['LATAM PASS', 'SMILES', 'TAP MILES&GO', 'TUDO AZUL'];
@@ -35,7 +45,7 @@ const Vendas = () => {
     const { data: vendas = [], isLoading } = useSales();
     const { data: programas = [] } = usePrograms();
     const { data: contas = [] } = useAccounts();
-    const { data: cartoes = [] } = useCreditCards(); // <--- Busca os cartões
+    const { data: cartoes = [] } = useCreditCards(); 
     
     const createSaleMutation = useCreateSale();
     const deleteSaleMutation = useDeleteSale();
@@ -50,14 +60,15 @@ const Vendas = () => {
     const [hasTax, setHasTax] = useState(false);
     const [taxType, setTaxType] = useState<'MONEY' | 'MILES'>('MONEY');
     const [taxAmount, setTaxAmount] = useState('');
-    const [taxCardId, setTaxCardId] = useState(''); // <--- Estado do cartão da taxa
+    const [taxCardId, setTaxCardId] = useState(''); 
 
     const [formData, setFormData] = useState({
         programaId: '',
         contaId: '',
         quantidade: '',
         valorUnitario: '',
-        dataVenda: format(new Date(), 'yyyy-MM-dd'),
+        // Inicializa com data segura (string pura)
+        dataVenda: new Date().toLocaleDateString('en-CA'),
         dataRecebimento: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
         status: 'pendente' as 'pendente' | 'recebido',
         observacoes: '',
@@ -77,7 +88,7 @@ const Vendas = () => {
             contaId: '',
             quantidade: '',
             valorUnitario: '',
-            dataVenda: format(new Date(), 'yyyy-MM-dd'),
+            dataVenda: new Date().toLocaleDateString('en-CA'),
             dataRecebimento: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
             status: 'pendente',
             observacoes: '',
@@ -113,42 +124,34 @@ const Vendas = () => {
             return;
         }
 
-        // Validação da Taxa em Dinheiro: Exige cartão
         if (hasTax && taxType === 'MONEY' && !taxCardId) {
             toast.error('Selecione o cartão usado para pagar a taxa.');
             return;
         }
 
-        // --- CÁLCULOS FINAIS ---
         let quantidadeFinal = parseInt(formData.quantidade);
         
         const valUnitString = formData.valorUnitario.toString().replace(',', '.');
         const valorUnitario = parseFloat(valUnitString);
         
-        // Tratamento da Vírgula na Taxa (A CORREÇÃO PRINCIPAL ESTÁ AQUI)
         const taxString = taxAmount.toString().replace(',', '.');
         const taxaValor = parseFloat(taxString) || 0;
 
-        // Valor base da venda (sem taxas)
         let valorTotalFinal = (quantidadeFinal / 1000) * valorUnitario;
 
-        // Variáveis para o payload
         let taxPayload = null;
         let observacaoFinal = formData.observacoes;
 
         if (hasTax && taxaValor > 0) {
             if (taxType === 'MONEY') {
-                // LÓGICA DINHEIRO:
-                // Não mexe na quantidade nem no valor da venda.
-                // Prepara o payload extra para o hook criar os lançamentos separados.
-                
-                // Calcular vencimento do cartão para a taxa
                 let dataVencimentoCartao = formData.dataVenda; 
                 const cartao = cartoes.find(c => c.id === taxCardId);
                 
                 if (cartao) {
                     try {
-                        const datas = calculateCardDates(new Date(formData.dataVenda), cartao.closing_day, cartao.due_day);
+                        // Calcula data do cartão usando SAFE DATE (Meio dia)
+                        const safeSaleDate = new Date(formData.dataVenda + 'T12:00:00');
+                        const datas = calculateCardDates(safeSaleDate, cartao.closing_day, cartao.due_day);
                         dataVencimentoCartao = format(datas.dueDate, 'yyyy-MM-dd');
                     } catch (err) {
                         console.error("Erro data cartao", err);
@@ -165,13 +168,9 @@ const Vendas = () => {
                 observacaoFinal += ` | Taxa Paga: R$ ${taxaValor.toFixed(2)}`;
 
             } else {
-                // LÓGICA MILHAS:
-                // Soma no estoque (sai mais milhas).
-                // Valor total sobe proporcionalmente (para cobrir custo).
                 quantidadeFinal += taxaValor;
                 valorTotalFinal = (quantidadeFinal / 1000) * valorUnitario;
                 observacaoFinal += ` | Taxa: ${taxaValor} milhas`;
-                
                 taxPayload = { hasTax: true, type: 'MILES' };
             }
         }
@@ -185,14 +184,14 @@ const Vendas = () => {
             contaId: formData.contaId,
             quantidade: quantidadeFinal, 
             valorUnitario, 
-            valorTotal: valorTotalFinal, // Valor APENAS da venda (ou venda+milhas extras)
-            dataVenda: formData.dataVenda,
+            valorTotal: valorTotalFinal,
+            dataVenda: formData.dataVenda, // Envia string pura
             dataRecebimento: formData.dataRecebimento,
             status: formData.status,
             observacoes: observacaoFinal,
             passageiros: passageirosVenda, 
             parcelas: parcelas, 
-            taxDetails: taxPayload // Enviamos os detalhes para o hook processar
+            taxDetails: taxPayload
         };
 
         createSaleMutation.mutate(vendaData, {
@@ -209,18 +208,12 @@ const Vendas = () => {
         }
     };
 
-    const handleDateChange = (newDate: string) => {
-        setFormData(prev => ({
-            ...prev,
-            dataVenda: newDate,
-        }));
-    };
-
     const columns = [
         {
             key: 'dataVenda',
             header: 'Data',
-            render: (venda: any) => format(new Date(venda.transaction_date || venda.created_at), 'dd/MM/yyyy'),
+            // --- AQUI ESTÁ A CORREÇÃO DE VISUALIZAÇÃO ---
+            render: (venda: any) => formatDateSafe(venda.transaction_date || venda.created_at),
         },
         {
             key: 'programaId',
@@ -394,7 +387,7 @@ const Vendas = () => {
                                     </div>
                                 </div>
 
-                                {/* --- SEÇÃO DE TAXAS (NOVA) --- */}
+                                {/* --- SEÇÃO DE TAXAS --- */}
                                 <div className="bg-primary/5 p-4 rounded-lg border border-primary/20 space-y-4">
                                     <div className="flex items-center justify-between">
                                         <Label className="flex items-center gap-2 cursor-pointer font-semibold text-primary">
@@ -437,7 +430,6 @@ const Vendas = () => {
                                                 </p>
                                             </div>
 
-                                            {/* SELEÇÃO DE CARTÃO (SÓ APARECE SE FOR DINHEIRO) */}
                                             {taxType === 'MONEY' && (
                                                 <div className="space-y-2 animate-in fade-in">
                                                     <Label className="flex items-center gap-2">
@@ -468,7 +460,7 @@ const Vendas = () => {
                                         <Input 
                                             type="date" 
                                             value={formData.dataVenda}
-                                            onChange={(e) => handleDateChange(e.target.value)}
+                                            onChange={(e) => setFormData({...formData, dataVenda: e.target.value})} // Alterado para setFormData diretamente
                                             required
                                         />
                                     </div>
@@ -508,17 +500,14 @@ const Vendas = () => {
                                                 <p className="font-medium mb-2 text-xs uppercase tracking-wide">Previsão Recebimento</p>
                                                 <div className="max-h-32 overflow-y-auto text-xs space-y-2 pr-1 custom-scrollbar">
                                                     {Array.from({ length: Math.max(1, parcelas) }).map((_, i) => {
-                                                        const dataBase = formData.dataRecebimento ? new Date(formData.dataRecebimento) : new Date();
-                                                        const dataPrevista = new Date(dataBase.valueOf() + dataBase.getTimezoneOffset() * 60000);
-                                                        
+                                                        const dataBase = formData.dataRecebimento ? new Date(formData.dataRecebimento + 'T12:00:00') : new Date();
+                                                        const dataPrevista = new Date(dataBase.valueOf());
                                                         if (i > 0) dataPrevista.setMonth(dataPrevista.getMonth() + i);
                                                         
-                                                        // Cálculo Visual (Só da Venda)
                                                         let qtd = parseInt(formData.quantidade) || 0;
                                                         const valUnitString = formData.valorUnitario.toString().replace(',', '.');
                                                         const valUnit = parseFloat(valUnitString) || 0;
                                                         
-                                                        // Se for milhas, a venda é maior, então parcela é maior
                                                         if (hasTax && taxType === 'MILES') {
                                                             const taxString = taxAmount.toString().replace(',', '.');
                                                             const tx = parseFloat(taxString) || 0;
