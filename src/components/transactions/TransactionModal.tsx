@@ -12,7 +12,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-// IMPORTANTE: Certifique-se de que o arquivo src/components/ui/radio-group.tsx existe
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"; 
 import { 
     Select, 
@@ -34,7 +33,7 @@ import {
   AlertTriangle,
   CalendarCheck,
   Loader2,
-  Plane, // Ícone da Taxa de Embarque
+  Plane, 
 } from 'lucide-react';
 
 import { toast } from 'sonner';
@@ -84,8 +83,7 @@ export function TransactionModal({
   const createPayable = useCreatePayable();
   const createPayableInstallments = useCreatePayableInstallments();
   const createReceivable = useCreateReceivable();
-  const createReceivableInstallments =
-    useCreateReceivableInstallments();
+  const createReceivableInstallments = useCreateReceivableInstallments();
 
   // IDs reais (enviados no payload)
   const [accountId, setAccountId] = useState('');
@@ -98,13 +96,10 @@ export function TransactionModal({
   const [searchPrograma, setSearchPrograma] = useState('');
   const [searchPassageiro, setSearchPassageiro] = useState('');
 
-  const [transactionType, setTransactionType] =
-    useState<TransactionType>('COMPRA');
+  const [transactionType, setTransactionType] = useState<TransactionType>('COMPRA');
   const [quantity, setQuantity] = useState('');
   const [pricePerThousand, setPricePerThousand] = useState('');
-  const [transactionDate, setTransactionDate] = useState(
-    format(new Date(), 'yyyy-MM-dd'),
-  );
+  const [transactionDate, setTransactionDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [expirationDate, setExpirationDate] = useState('');
   const [notes, setNotes] = useState('');
 
@@ -116,15 +111,11 @@ export function TransactionModal({
   const [useCreditCard, setUseCreditCard] = useState(false);
   const [selectedCardId, setSelectedCardId] = useState('');
   const [installmentCount, setInstallmentCount] = useState('1');
-  const [manualDueDate, setManualDueDate] = useState(
-    format(new Date(), 'yyyy-MM-dd')
-  );
+  const [manualDueDate, setManualDueDate] = useState(format(new Date(), 'yyyy-MM-dd'));
 
   const [useInstallments, setUseInstallments] = useState(false);
   const [saleInstallments, setSaleInstallments] = useState('1');
-  const [firstReceiveDate, setFirstReceiveDate] = useState(
-    format(new Date(), 'yyyy-MM-dd'),
-  );
+  const [firstReceiveDate, setFirstReceiveDate] = useState(format(new Date(), 'yyyy-MM-dd'));
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -160,6 +151,11 @@ export function TransactionModal({
     }
   }, [open]);
 
+  // --- LÓGICA VISUAL DOS DROPDOWNS (CORREÇÃO DO QUADRADO) ---
+  const showContaList = searchConta && !contas?.some(c => c.name === searchConta);
+  const showProgramaList = searchPrograma && !programas?.some(p => p.name === searchPrograma);
+  const showPassageiroList = searchPassageiro && !passageiros?.some(p => p.name === searchPassageiro);
+
   // --- CÁLCULOS PRINCIPAIS COM TAXAS ---
   const finalValues = useMemo(() => {
     const baseQ = Number(quantity) || 0;
@@ -167,19 +163,12 @@ export function TransactionModal({
     const taxVal = Number(taxAmount) || 0;
 
     let finalQty = baseQ;
-    // Receita Base = (Qtd Milhas / 1000) * Preço Milheiro
     let finalRevenue = (baseQ / 1000) * price;
 
     if (hasTax && taxVal > 0) {
         if (taxType === 'MONEY') {
-            // LÓGICA DINHEIRO:
-            // Quantidade de milhas não muda.
-            // Receita aumenta (Valor da Venda + Valor da Taxa).
             finalRevenue += taxVal;
         } else {
-            // LÓGICA MILHAS:
-            // Quantidade de milhas aumenta (sai mais do estoque).
-            // Receita é recalculada sobre a nova quantidade TOTAL de milhas.
             finalQty += taxVal;
             finalRevenue = (finalQty / 1000) * price;
         }
@@ -188,11 +177,10 @@ export function TransactionModal({
     return { 
         qty: finalQty, 
         revenue: finalRevenue,
-        baseRevenue: (baseQ / 1000) * price // Para mostrar subtotais
+        baseRevenue: (baseQ / 1000) * price 
     };
   }, [quantity, pricePerThousand, hasTax, taxType, taxAmount]);
 
-  // O Total Calculado usado pelo resto do sistema agora é o Final (com taxas)
   const calculatedTotal = finalValues.revenue;
 
   const firstPaymentDate = useMemo(() => {
@@ -209,22 +197,12 @@ export function TransactionModal({
     return manualDueDate && !isNaN(new Date(manualDueDate).getTime())
       ? new Date(manualDueDate)
       : new Date(transactionDate);
-  }, [
-    useCreditCard,
-    selectedCardId,
-    transactionDate,
-    manualDueDate,
-    creditCards,
-  ]);
+  }, [useCreditCard, selectedCardId, transactionDate, manualDueDate, creditCards]);
 
   const installmentPreview = useMemo(() => {
     const count = Number(installmentCount);
     if (!calculatedTotal || count <= 0) return [];
-    return generateInstallments(
-      calculatedTotal,
-      count,
-      firstPaymentDate,
-    );
+    return generateInstallments(calculatedTotal, count, firstPaymentDate);
   }, [calculatedTotal, installmentCount, firstPaymentDate]);
 
   const avgCpm = useMemo(() => {
@@ -233,66 +211,30 @@ export function TransactionModal({
   }, [programas, programId]);
 
   const saleProfit = useMemo(() => {
-    // Calculamos o lucro baseado na quantidade FINAL de milhas que saiu do estoque
     if (finalValues.qty <= 0 || !finalValues.revenue) return null;
-    return calculateSaleProfit(
-      finalValues.revenue,
-      finalValues.qty,
-      avgCpm / 1000,
-    );
+    return calculateSaleProfit(finalValues.revenue, finalValues.qty, avgCpm / 1000);
   }, [finalValues, avgCpm]);
 
-  const purchaseCpm = useMemo(() => {
-    return Number(pricePerThousand);
-  }, [pricePerThousand]);
-
+  const purchaseCpm = useMemo(() => Number(pricePerThousand), [pricePerThousand]);
 
   const cpfAlert = useMemo(() => {
-    if (
-      transactionType !== 'VENDA' ||
-      !programId ||
-      !accountId ||
-      !clientId
-    )
-      return null;
-
+    if (transactionType !== 'VENDA' || !programId || !accountId || !clientId) return null;
     const prog = programas?.find(p => p.id === programId);
     const limite = Number((prog as any)?.cpf_limit) || 25;
     const umAnoAtras = subYears(new Date(), 1);
-
     const vendasRelevantes = vendasSafe.filter(
-      v =>
-        v.contaId === accountId &&
-        v.programaId === programId &&
-        new Date(v.dataVenda) >= umAnoAtras,
+      v => v.contaId === accountId && v.programaId === programId && new Date(v.dataVenda) >= umAnoAtras,
     );
-
-    const clientes = new Set(
-      vendasRelevantes.map(v => v.clienteId),
-    );
-
-    if (clientes.has(clientId)) {
-      return { type: 'success', msg: 'Passageiro já utilizado.' };
-    }
-    if (clientes.size >= limite) {
-      return { type: 'error', msg: 'Limite de CPFs atingido.' };
-    }
-    return {
-      type: 'warning',
-      msg: `Consumirá nova cota (${clientes.size + 1}/${limite})`,
-    };
+    const clientes = new Set(vendasRelevantes.map(v => v.clienteId));
+    if (clientes.has(clientId)) return { type: 'success', msg: 'Passageiro já utilizado.' };
+    if (clientes.size >= limite) return { type: 'error', msg: 'Limite de CPFs atingido.' };
+    return { type: 'warning', msg: `Consumirá nova cota (${clientes.size + 1}/${limite})` };
   }, [transactionType, programId, accountId, clientId, vendasSafe, programas]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (
-      !accountId ||
-      !programId ||
-      !quantity ||
-      !pricePerThousand ||
-      (transactionType === 'VENDA' && !clientId)
-    ) {
+    if (!accountId || !programId || !quantity || !pricePerThousand || (transactionType === 'VENDA' && !clientId)) {
       toast.error('Preencha os campos obrigatórios');
       return;
     }
@@ -303,13 +245,9 @@ export function TransactionModal({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Usuário não logado');
 
-      // Quantidade FINAL (incluindo taxas em milhas, se houver)
       const qty = Math.abs(finalValues.qty);
-
-      // Receita FINAL (incluindo taxa em dinheiro ou valor das milhas extras)
       const revenue = finalValues.revenue;
 
-      // Adicionar info da taxa nas observações automaticamente
       let finalNotes = notes;
       if (hasTax && Number(taxAmount) > 0) {
           const taxInfo = taxType === 'MONEY' 
@@ -325,7 +263,7 @@ export function TransactionModal({
         type: transactionType,
         quantity:
           transactionType === 'VENDA' || transactionType === 'USO' || transactionType === 'TRANSF_SAIDA' || transactionType === 'EXPIROU'
-            ? -qty // Sai negativo do estoque
+            ? -qty 
             : qty,
         total_cost:
           (transactionType === 'COMPRA' || transactionType === 'TRANSF_ENTRADA' || transactionType === 'BONUS')
@@ -343,14 +281,11 @@ export function TransactionModal({
         user_id: user.id,
       });
 
-      // 2. CONTAS A PAGAR (SE FOR COMPRA)
+      // 2. CONTAS A PAGAR
       if (transactionType === 'COMPRA') {
-        const payable =
-          await createPayable.mutateAsync({
+        const payable = await createPayable.mutateAsync({
             transaction_id: transaction.id,
-            credit_card_id: useCreditCard
-              ? selectedCardId
-              : null,
+            credit_card_id: useCreditCard ? selectedCardId : null,
             description: 'Compra de Milhas', 
             total_amount: revenue,
             installments: Number(installmentCount),
@@ -369,7 +304,7 @@ export function TransactionModal({
         );
       }
       
-      // 3. CONTAS A RECEBER (SE FOR VENDA)
+      // 3. CONTAS A RECEBER
       if (transactionType === 'VENDA' && useInstallments) {
             const program = programas?.find(p => p.id === programId);
             const passageiro = passageiros?.find(p => p.id === clientId);
@@ -384,11 +319,7 @@ export function TransactionModal({
             });
 
             await createReceivableInstallments.mutateAsync(
-                generateInstallments(
-                    revenue,
-                    Number(saleInstallments),
-                    new Date(firstReceiveDate)
-                ).map(i => ({
+                generateInstallments(revenue, Number(saleInstallments), new Date(firstReceiveDate)).map(i => ({
                     receivable_id: receivable.id,
                     installment_number: i.installmentNumber,
                     amount: i.amount,
@@ -398,7 +329,6 @@ export function TransactionModal({
                 }))
             );
         }
-
 
       toast.success('Transação registrada');
       onOpenChange(false);
@@ -438,24 +368,25 @@ export function TransactionModal({
           {/* CONTA / PROGRAMA / PASSAGEIRO (Inputs de Busca e Seleção) */}
           <div className="grid grid-cols-2 gap-4">
             {/* BUSCA CONTA */}
-            <div>
-              <Label htmlFor="searchConta">Conta * ({accountId ? 'ID Selecionado' : 'Não Selecionado'})</Label>
+            <div className="relative">
+              <Label htmlFor="searchConta">Conta *</Label>
               <Input
                 id="searchConta"
                 value={searchConta}
                 onChange={e => setSearchConta(e.target.value)}
-                placeholder="Digite para buscar e selecionar a Conta"
+                placeholder="Buscar Conta"
+                className="mt-1"
+                autoComplete="off"
               />
-              {searchConta && (
-                <div className="border rounded max-h-40 overflow-y-auto mt-1 absolute z-10 w-[100%] sm:w-[45%] bg-card shadow-lg">
+              {/* LISTA DE SUGESTÃO: SÓ APARECE SE TIVER TEXTO E NÃO FOR IGUAL AO SELECIONADO */}
+              {showContaList && (
+                <div className="absolute z-50 w-full mt-1 bg-popover text-popover-foreground rounded-md border shadow-md max-h-[200px] overflow-y-auto">
                   {(contas ?? [])
-                    .filter(c =>
-                      c.name.toLowerCase().includes(searchConta.toLowerCase())
-                    )
+                    .filter(c => c.name.toLowerCase().includes(searchConta.toLowerCase()))
                     .map(c => (
                       <div
                         key={c.id}
-                        className={`p-2 cursor-pointer hover:bg-primary/20 ${c.id === accountId ? 'bg-primary/30' : ''}`}
+                        className="px-2 py-1.5 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground"
                         onClick={() => {
                           setAccountId(c.id);
                           setSearchConta(c.name);
@@ -464,32 +395,32 @@ export function TransactionModal({
                         {c.name}
                     </div>
                   ))}
+                  {contas?.filter(c => c.name.toLowerCase().includes(searchConta.toLowerCase())).length === 0 && (
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">Nenhuma conta encontrada</div>
+                  )}
               </div>
-            )}
-            {accountId && !searchConta.includes(contas?.find(c => c.id === accountId)?.name || 'x') && (
-              <p className="text-xs text-primary mt-1">Conta: {contas?.find(c => c.id === accountId)?.name || accountId}</p>
             )}
           </div>
 
             {/* BUSCA PROGRAMA */}
-            <div>
-              <Label htmlFor="searchPrograma">Programa * ({programId ? 'ID Selecionado' : 'Não Selecionado'})</Label>
+            <div className="relative">
+              <Label htmlFor="searchPrograma">Programa *</Label>
               <Input
                 id="searchPrograma"
                 value={searchPrograma}
                 onChange={e => setSearchPrograma(e.target.value)}
-                placeholder="Digite para buscar e selecionar o Programa"
+                placeholder="Buscar Programa"
+                className="mt-1"
+                autoComplete="off"
               />
-              {searchPrograma && (
-                <div className="border rounded max-h-40 overflow-y-auto mt-1 absolute z-10 w-[100%] sm:w-[45%] bg-card shadow-lg">
+              {showProgramaList && (
+                <div className="absolute z-50 w-full mt-1 bg-popover text-popover-foreground rounded-md border shadow-md max-h-[200px] overflow-y-auto">
                   {(programas ?? [])
-                    .filter(p =>
-                      p.name.toLowerCase().includes(searchPrograma.toLowerCase())
-                    )
+                    .filter(p => p.name.toLowerCase().includes(searchPrograma.toLowerCase()))
                     .map(p => (
                       <div
                         key={p.id}
-                        className={`p-2 cursor-pointer hover:bg-primary/20 ${p.id === programId ? 'bg-primary/30' : ''}`}
+                        className="px-2 py-1.5 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground"
                         onClick={() => {
                           setProgramId(p.id);
                           setSearchPrograma(p.name);
@@ -498,14 +429,13 @@ export function TransactionModal({
                         {p.name}
                     </div>
                   ))}
+                  {programas?.filter(p => p.name.toLowerCase().includes(searchPrograma.toLowerCase())).length === 0 && (
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">Nenhum programa encontrado</div>
+                  )}
               </div>
-            )}
-            {programId && !searchPrograma.includes(programas?.find(p => p.id === programId)?.name || 'x') && (
-              <p className="text-xs text-primary mt-1">Programa: {programas?.find(p => p.id === programId)?.name || programId}</p>
             )}
             </div>
           </div>
-
 
             {/* TIPO DE TRANSAÇÃO */}
             <div className="space-y-2">
@@ -522,9 +452,7 @@ export function TransactionModal({
                         <SelectItem value="EXPIROU">Expirado</SelectItem>
                     </SelectContent>
                 </Select>
-                {/* NOTA: O CPF Alert só aparece se for VENDA */}
             </div>
-
 
           <Separator />
             
@@ -537,7 +465,6 @@ export function TransactionModal({
                 <div className="space-y-2">
                     <Label>{transactionType === 'VENDA' ? 'Valor Unitário (R$/1000) *' : 'Valor Compra (Milheiro) *'}</Label>
                     <div className="space-y-1">
-                        {/* AQUI ESTÁ A MUDANÇA: step="0.000001" permite alta precisão */}
                         <Input type="number" step="0.000001" value={pricePerThousand} onChange={e => setPricePerThousand(e.target.value)} placeholder="Ex: 20.50" min="0" required />
                         <div className="text-right text-sm font-medium text-muted-foreground">
                             Subtotal: {formatCurrency(finalValues.baseRevenue)}
@@ -546,7 +473,7 @@ export function TransactionModal({
                 </div>
             </div>
 
-            {/* --- SEÇÃO DE TAXAS (NOVA) --- */}
+            {/* --- SEÇÃO DE TAXAS --- */}
             {transactionType === 'VENDA' && (
                 <Card className="bg-primary/5 border-primary/20">
                     <CardContent className="pt-4 space-y-4">
@@ -597,7 +524,7 @@ export function TransactionModal({
                 </Card>
             )}
 
-            {/* PREVIEWS DE CPM E LUCRO */}
+            {/* PREVIEWS */}
             {transactionType === 'COMPRA' && purchaseCpm > 0 && (
                 <Card className="bg-muted/30">
                     <CardContent className="pt-4">
@@ -643,35 +570,25 @@ export function TransactionModal({
                 )}
             </div>
 
-            {/* SELETORES DE FORNECEDOR/CLIENTE (PASSAGEIRO) */}
-            {transactionType === 'COMPRA' && (
-                <div className="space-y-2">
-                    <Label>Fornecedor</Label>
-                    <Select value={supplierId} onValueChange={setSupplierId}>
-                        <SelectTrigger><SelectValue placeholder="Selecione (opcional)" /></SelectTrigger>
-                        <SelectContent>{suppliers?.map(sup => (<SelectItem key={sup.id} value={sup.id}>{sup.name}</SelectItem>))}</SelectContent>
-                    </Select>
-                </div>
-            )}
+            {/* PASSAGEIRO (AUTOCOMPLETE) */}
             {transactionType === 'VENDA' && (
-                <div className="space-y-2">
-                    <Label htmlFor="searchPassageiro">Passageiro * ({clientId ? 'ID Selecionado' : 'Não Selecionado'})</Label>
+                <div className="space-y-2 relative">
+                    <Label htmlFor="searchPassageiro">Passageiro *</Label>
                     <Input
                         id="searchPassageiro"
                         value={searchPassageiro}
                         onChange={e => setSearchPassageiro(e.target.value)}
-                        placeholder="Digite para buscar e selecionar o Passageiro"
+                        placeholder="Buscar Passageiro"
+                        autoComplete="off"
                     />
-                    {searchPassageiro && (
-                        <div className="border rounded max-h-40 overflow-y-auto mt-1 absolute z-10 w-full bg-card shadow-lg">
+                    {showPassageiroList && (
+                        <div className="absolute z-50 w-full mt-1 bg-popover text-popover-foreground rounded-md border shadow-md max-h-[200px] overflow-y-auto">
                             {(passageiros ?? [])
-                                .filter(p =>
-                                    p.name.toLowerCase().includes(searchPassageiro.toLowerCase())
-                                )
+                                .filter(p => p.name.toLowerCase().includes(searchPassageiro.toLowerCase()))
                                 .map(p => (
                                     <div
                                         key={p.id}
-                                        className={`p-2 cursor-pointer hover:bg-primary/20 ${p.id === clientId ? 'bg-primary/30' : ''}`}
+                                        className="px-2 py-1.5 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground"
                                         onClick={() => {
                                             setClientId(p.id);
                                             setSearchPassageiro(p.name);
@@ -682,10 +599,6 @@ export function TransactionModal({
                                 ))}
                         </div>
                     )}
-                    {clientId && !searchPassageiro.includes(passageiros?.find(p => p.id === clientId)?.name || 'x') && (
-                        <p className="text-xs text-primary mt-1">Passageiro: {passageiros?.find(p => p.id === clientId)?.name || clientId}</p>
-                      )}
-
                     {cpfAlert && (<div className={`text-xs p-2 rounded border mt-2 flex items-center gap-2 ${cpfAlert.type === 'error' ? 'bg-destructive/10 text-destructive border-destructive/20' : cpfAlert.type === 'success' ? 'bg-success/10 text-success border-success/20' : 'bg-warning/10 text-warning border-warning/20'}`}>{cpfAlert.type === 'error' && <AlertTriangle className="h-3 w-3" />}{cpfAlert.type === 'success' && <TrendingUp className="h-3 w-3" />}{cpfAlert.msg}</div>)}
                 </div>
             )}
@@ -738,14 +651,8 @@ export function TransactionModal({
                                         Pagar Hoje
                                     </Button>
                                 </Label>
-                                <Input
-                                    type="date"
-                                    value={manualDueDate}
-                                    onChange={e => setManualDueDate(e.target.value)}
-                                />
-                                <p className="text-xs text-muted-foreground">
-                                    Selecione quando o dinheiro sairá da conta.
-                                </p>
+                                <Input type="date" value={manualDueDate} onChange={e => setManualDueDate(e.target.value)} />
+                                <p className="text-xs text-muted-foreground">Selecione quando o dinheiro sairá da conta.</p>
                             </div>
                         </div>
                     )}
@@ -806,17 +713,10 @@ export function TransactionModal({
                 <Input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Observações (opcional)" />
             </div>
 
-
           <div className="flex justify-end gap-2 pt-4 border-t">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={isSubmitting}
-            >
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
               Cancelar
             </Button>
-
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting ? 'Salvando…' : 'Registrar'}
             </Button>
