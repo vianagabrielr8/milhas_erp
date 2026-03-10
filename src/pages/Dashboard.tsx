@@ -31,7 +31,7 @@ import {
   useAccounts
 } from '@/hooks/useSupabaseData';
 import { formatCPM } from '@/utils/financeLogic';
-import { format, startOfMonth, addMonths, subMonths, isWithinInterval, parseISO } from 'date-fns';
+import { format, startOfMonth, addMonths, differenceInMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
@@ -92,13 +92,24 @@ const Dashboard = () => {
   const equity = (marketValue + totalReceivableAllTime) - totalPayableAllTime;
   const coverageIndex = totalPayableAllTime > 0 ? marketValue / totalPayableAllTime : 0;
 
-  // --- 3. LÓGICA DO GRÁFICO DE FLUXO DE CAIXA (6 MESES) ---
+  // --- 3. LÓGICA DO GRÁFICO DE FLUXO DE CAIXA (A PARTIR DE JAN/2026 ATÉ +4 MESES) ---
   const cashFlowData = useMemo(() => {
     const months = [];
-    for (let i = -1; i <= 4; i++) {
-      const date = addMonths(new Date(), i);
+    const currentDate = new Date();
+    
+    // Data de início fixa: 01 de Janeiro de 2026
+    const startDate = new Date(2026, 0, 1); // Ano 2026, Mês 0 (Jan), Dia 1
+    
+    // Calcular a diferença em meses entre a data atual e Janeiro de 2026
+    // Retorna negativo porque startDate é no passado em relação a currentDate
+    const diffMonths = differenceInMonths(startDate, currentDate);
+
+    // O loop começa na diferença de meses (ex: -2 se hoje for Março) 
+    // e vai até 4 meses para frente da data atual
+    for (let i = diffMonths; i <= 4; i++) {
+      const date = addMonths(currentDate, i);
       months.push({
-        label: format(date, 'MMM', { locale: ptBR }),
+        label: format(date, 'MMM/yy', { locale: ptBR }), // Ex: jan/26
         key: format(date, 'yyyy-MM'),
         entradas: 0,
         saidas: 0,
@@ -217,7 +228,7 @@ const Dashboard = () => {
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Gráfico de Fluxo de Caixa */}
         <Card className="lg:col-span-2">
-          <CardHeader><CardTitle>Projeção de Fluxo de Caixa (6 meses)</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Projeção de Fluxo de Caixa (Jan/26 a +4 meses)</CardTitle></CardHeader>
           <CardContent>
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
