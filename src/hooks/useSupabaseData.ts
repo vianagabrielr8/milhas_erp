@@ -2,13 +2,19 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
-// --- PARSER DE MOEDA (Seguro) ---
+// --- PARSER DE MOEDA (BLINDADO) ---
 const parseCurrency = (value: any) => {
   if (typeof value === 'number') return value;
   if (!value) return 0;
   if (typeof value === 'string') {
-      const clean = value.replace(/\./g, '').replace(',', '.');
-      return parseFloat(clean) || 0;
+      // Se tiver vírgula, é formato brasileiro (ex: 1.000,50 ou 20,50). 
+      // Limpa os pontos de milhar e troca vírgula por ponto.
+      if (value.includes(',')) {
+          const clean = value.replace(/\./g, '').replace(',', '.');
+          return parseFloat(clean) || 0;
+      }
+      // Se não tiver vírgula, assumimos que já é padrão de sistema/navegador (ex: 759.90)
+      return parseFloat(value) || 0;
   }
   return 0;
 };
@@ -38,12 +44,10 @@ export const useExpiringMiles = () => useQuery({ queryKey: ['expiring_miles'], q
 export const useSales = () => useQuery({ queryKey: ['sales'], queryFn: async () => (await supabase.from('transactions').select('*').eq('type', 'VENDA').order('transaction_date', { ascending: false })).data || [] });
 export const useReceivableInstallments = () => useQuery({ queryKey: ['receivable_installments'], queryFn: async () => (await supabase.from('receivable_installments').select(`*, receivables (description, total_amount)`).order('due_date')).data || [] });
 
-// --- AQUI ESTÁ A CORREÇÃO PARA O "CONTAS A PAGAR" (Busca 'installments') ---
 export const usePayableInstallments = () => useQuery({ 
     queryKey: ['payable_installments'], 
     queryFn: async () => (await supabase
         .from('payable_installments')
-        // Adicionei ", installments" dentro do select de payables
         .select(`*, payables (description, installments, credit_cards (name))`) 
         .order('due_date')
     ).data || [] 
@@ -51,7 +55,7 @@ export const usePayableInstallments = () => useQuery({
 
 /* --- ESCRITA --- */
 
-// 1. CRIAR VENDA (Com Lógica de Taxa Separada)
+// 1. CRIAR VENDA
 export const useCreateSale = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -61,7 +65,7 @@ export const useCreateSale = () => {
       const qtdMilhas = Math.abs(parseCurrency(newSale.quantidade)); 
       const quantidadeNegativa = -1 * qtdMilhas;
 
-      // 1. Cálculo do CPM (Custo)
+      // Cálculo do CPM
       const { data: historico } = await supabase
         .from('transactions')
         .select('quantity, total_cost')
@@ -89,7 +93,6 @@ export const useCreateSale = () => {
           custoDoEstoque = (qtdMilhas / 1000) * cpmAtual;
       }
 
-      // 2. Criar Transação de Venda (Estoque)
       const { data: transaction, error: transError } = await supabase.from('transactions')
         .insert({
             user_id: user?.id,
@@ -105,13 +108,11 @@ export const useCreateSale = () => {
 
       if (transError) throw transError;
 
-      // 3. Registrar Passageiros
       if (newSale.passageiros?.length > 0) {
           const passData = newSale.passageiros.map((p:any) => ({ user_id: user?.id, transaction_id: transaction.id, name: p.nome, cpf: p.cpf }));
           await supabase.from('passengers').insert(passData);
       }
 
-      // 4. Financeiro: Contas a Receber (VENDA)
       if (valorReceitaTotal > 0) {
         const { data: receivable, error: recError } = await supabase.from('receivables')
           .insert({
@@ -127,8 +128,8 @@ export const useCreateSale = () => {
             const valorParcela = valorReceitaTotal / numParcelas;
             const installments = [];
             for (let i = 0; i < numParcelas; i++) {
-                const dataBase = new Date(newSale.dataRecebimento);
-                const dataVencimento = new Date(dataBase.valueOf() + dataBase.getTimezoneOffset() * 60000);
+                const dataBase = new Date(newSale.dataRecebimento + 'T12:00:00');
+                const dataVencimento = new Date(dataBase.valueOf());
                 if (i > 0) dataVencimento.setMonth(dataVencimento.getMonth() + i);
                 installments.push({ user_id: user?.id, receivable_id: receivable.id, installment_number: i + 1, amount: valorParcela, due_date: dataVencimento.toISOString().split('T')[0], status: 'PENDENTE' });
             }
@@ -136,15 +137,13 @@ export const useCreateSale = () => {
         }
       }
 
-      // 5. --- LÓGICA DE TAXA EM DINHEIRO (SEPARADA) ---
       const taxDetails = newSale.taxDetails;
       if (taxDetails && taxDetails.hasTax && taxDetails.type === 'MONEY') {
           const taxVal = parseCurrency(taxDetails.amount);
           
-          // A. Contas a Pagar (Custo da Taxa no Cartão)
           const { data: payable } = await supabase.from('payables').insert({
               user_id: user?.id,
-              transaction_id: transaction.id, // Vincula à venda para rastreio
+              transaction_id: transaction.id,
               credit_card_id: taxDetails.cardId,
               description: `Pgto Taxa Embarque - Venda #${transaction.id.slice(0, 8)}`,
               total_amount: taxVal,
@@ -157,12 +156,11 @@ export const useCreateSale = () => {
                   payable_id: payable.id,
                   installment_number: 1,
                   amount: taxVal,
-                  due_date: taxDetails.cardDueDate, // Data calculada no frontend
+                  due_date: taxDetails.cardDueDate,
                   status: 'PENDENTE'
               });
           }
 
-          // B. Contas a Receber (Reembolso da Taxa)
           const { data: taxRec } = await supabase.from('receivables').insert({
               user_id: user?.id,
               transaction_id: transaction.id,
@@ -177,7 +175,7 @@ export const useCreateSale = () => {
                   receivable_id: taxRec.id,
                   installment_number: 1,
                   amount: taxVal,
-                  due_date: newSale.dataRecebimento, // Recebe junto com a venda
+                  due_date: newSale.dataRecebimento,
                   status: 'PENDENTE'
               });
           }
