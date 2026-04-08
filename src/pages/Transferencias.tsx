@@ -6,20 +6,18 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { 
     useAccounts, 
     usePrograms, 
     useMilesBalance, 
-    useCreateTransfer,
-    useCreditCards 
+    useCreateTransfer
 } from '@/hooks/useSupabaseData';
-import { calculateCardDates, generateInstallments, formatCurrency } from '@/utils/financeLogic';
 import { toast } from 'sonner';
-import { ArrowRight, Calculator, CalendarIcon, User, Wallet, ArrowRightLeft, CreditCard, CalendarCheck, Calendar, Scale, Percent } from 'lucide-react';
-import { format } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+import { ArrowRight, Calculator, CalendarIcon, User, Wallet, ArrowRightLeft, CreditCard, Scale, Percent, ShoppingCart, Plus, CalendarCheck } from 'lucide-react';
+
+// IMPORTANTE: Importamos o Modal de Compra Real
+import { TransactionModal } from '@/components/transactions/TransactionModal';
 
 // --- UTILITÁRIO DATA SEGURA ---
 const getTodayString = () => {
@@ -29,16 +27,11 @@ const getTodayString = () => {
     const day = String(d.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
 };
-const createSafeDate = (dateString: string) => {
-    if (!dateString) return new Date();
-    return new Date(`${dateString}T12:00:00`);
-};
 
 const Transferencias = () => {
   const { data: accounts } = useAccounts();
   const { data: programs } = usePrograms();
   const { data: milesBalance } = useMilesBalance();
-  const { data: creditCards } = useCreditCards();
   
   const createTransfer = useCreateTransfer();
 
@@ -49,17 +42,17 @@ const Transferencias = () => {
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(getTodayString());
   
-  // Estados de Regra de Negócio (NOVO UX)
+  // Estados de Regra de Negócio (UX)
   const [parityIn, setParityIn] = useState('1');
   const [parityOut, setParityOut] = useState('1');
   const [bonusPercent, setBonusPercent] = useState('0');
 
-  // Estados Financeiros
-  const [costAmount, setCostAmount] = useState('');
-  const [useCreditCard, setUseCreditCard] = useState(false);
-  const [selectedCardId, setSelectedCardId] = useState('');
-  const [installmentCount, setInstallmentCount] = useState('1');
-  const [manualDueDate, setManualDueDate] = useState(getTodayString());
+  // Estados de Compra Vinculada (NOVO UX)
+  const [purchasedTotalCost, setPurchasedTotalCost] = useState<number | null>(null);
+  const [linkedPurchaseId, setLinkedPurchaseId] = useState<string | null>(null);
+
+  // Estado do Modal de Compra (NOVO UX)
+  const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false);
 
   const isSubmitting = createTransfer.isPending;
 
@@ -83,7 +76,7 @@ const Transferencias = () => {
     const pIn = parseFloat(parityIn) || 1;
     const pOut = parseFloat(parityOut) || 1;
     const bonus = parseFloat(bonusPercent) || 0;
-    const cost = parseFloat(costAmount.toString().replace(',', '.')) || 0;
+    const cost = purchasedTotalCost || 0;
     
     // Calcula a conversão base (ex: 148000 / 2 * 1 = 74000)
     const baseDestino = Math.floor((qtdOrigem / pIn) * pOut);
@@ -95,32 +88,11 @@ const Transferencias = () => {
     const hasBalance = currentBalance >= qtdOrigem;
     
     return { qtdOrigem, pIn, pOut, baseDestino, bonus, bonusAmount, totalDestino, hasBalance, cost };
-  }, [amount, parityIn, parityOut, bonusPercent, currentBalance, costAmount]);
+  }, [amount, parityIn, parityOut, bonusPercent, currentBalance, purchasedTotalCost]);
 
   const handleUseMax = () => {
     setAmount(currentBalance.toString());
   };
-
-  // --- CÁLCULOS DO CARTÃO ---
-  const firstPaymentDate = useMemo(() => {
-    if (useCreditCard && selectedCardId) {
-      const card = creditCards?.find(c => c.id === selectedCardId);
-      if (card) {
-        return calculateCardDates(
-          createSafeDate(date), 
-          card.closing_day,
-          card.due_day,
-        );
-      }
-    }
-    return manualDueDate ? createSafeDate(manualDueDate) : createSafeDate(date);
-  }, [useCreditCard, selectedCardId, date, manualDueDate, creditCards]);
-
-  const installmentPreview = useMemo(() => {
-    const count = Number(installmentCount);
-    if (!calculation.cost || count <= 0) return [];
-    return generateInstallments(calculation.cost, count, firstPaymentDate);
-  }, [calculation.cost, installmentCount, firstPaymentDate]);
 
   // --- AÇÃO: TRANSFERIR ---
   const handleTransfer = async () => {
@@ -139,22 +111,11 @@ const Transferencias = () => {
       return;
     }
 
-    if (calculation.cost > 0 && useCreditCard && !selectedCardId) {
-        toast.error('Selecione o cartão de crédito utilizado no custo.');
-        return;
-    }
-
     if (calculation.qtdOrigem > currentBalance) {
         if (!confirm(`ATENÇÃO: Você tem apenas ${currentBalance.toLocaleString()} na origem, mas quer transferir ${calculation.qtdOrigem.toLocaleString()}. O estoque ficará negativo. Deseja continuar?`)) {
             return;
         }
     }
-
-    const dueDateList = installmentPreview.map(i => ({
-        installmentNumber: i.installmentNumber,
-        amount: i.amount,
-        dueDate: format(i.dueDate, 'yyyy-MM-dd')
-    }));
 
     try {
         await createTransfer.mutateAsync({
@@ -165,12 +126,10 @@ const Transferencias = () => {
             quantidadeOrigem: calculation.qtdOrigem,
             quantidadeDestino: calculation.totalDestino, 
             dataTransferencia: date,
-            custoTransferencia: calculation.cost,
-            useCreditCard: useCreditCard,
-            cardId: selectedCardId,
-            installments: Number(installmentCount),
-            dueDateList: dueDateList,
-            observacao: `Paridade ${parityIn}:${parityOut} | Bônus: ${bonusPercent}%`
+            // Custo agora vem da compra vinculada
+            custoTransferencia: purchasedTotalCost || 0,
+            linkedPurchaseId: linkedPurchaseId || null, 
+            observacao: `Paridade ${parityIn}:${parityOut} | Bônus: ${bonusPercent}%${linkedPurchaseId ? ` | Custo de Compra #${linkedPurchaseId.slice(0, 8)}` : ''}`
         });
 
         // Limpa formulário
@@ -178,18 +137,31 @@ const Transferencias = () => {
         setBonusPercent('0');
         setParityIn('1');
         setParityOut('1');
-        setCostAmount('');
+        setPurchasedTotalCost(null);
+        setLinkedPurchaseId(null);
         
     } catch (error) {
         console.error("Erro no formulário:", error);
     }
   };
 
+  // --- FUNÇÃO DE SUCESSO DO MODAL DE COMPRA ---
+  const handlePurchaseComplete = (newTransactionId: string, totalCost: number) => {
+      // 1. Vincula o ID da compra à transferência para rastreio
+      setLinkedPurchaseId(newTransactionId);
+      // 2. Preenche automaticamente o custo total na transferência (O PULO DO GATO!)
+      setPurchasedTotalCost(totalCost);
+      // 3. Fecha o modal
+      setIsPurchaseModalOpen(false);
+      // 4. Feedback visual
+      toast.success(`Compra #${newTransactionId.slice(0, 8)} de R$ ${totalCost.toLocaleString('pt-BR')} vinculada com sucesso!`);
+  };
+
   return (
     <MainLayout>
       <PageHeader 
         title="Transferência Inteligente" 
-        description="Transfira pontos com paridade personalizada, bônus real e custos."
+        description="Transfira pontos com paridade personalizada, bônus real e vincule compras detalhadas."
       />
 
       <div className="grid gap-6 lg:grid-cols-12 max-w-7xl mx-auto pb-10">
@@ -265,18 +237,12 @@ const Transferencias = () => {
             </CardHeader>
             <CardContent className="space-y-6">
               
-              {/* Paridade Visual */}
               <div className="space-y-3">
                   <Label>Paridade (Fator de Conversão)</Label>
                   <div className="flex items-center justify-between bg-muted/20 p-4 rounded-xl border border-border/50">
                       <div className="flex flex-col items-center gap-2 w-1/3">
                           <span className="text-xs text-muted-foreground uppercase font-semibold text-center truncate w-full">{sourceProgramName}</span>
-                          <Input 
-                              type="number" 
-                              className="h-12 text-xl font-black text-center shadow-sm" 
-                              value={parityIn} 
-                              onChange={e => setParityIn(e.target.value)} 
-                          />
+                          <Input type="number" className="h-12 text-xl font-black text-center shadow-sm" value={parityIn} onChange={e => setParityIn(e.target.value)} />
                       </div>
                       <div className="flex flex-col items-center justify-center w-1/3 pt-6">
                           <ArrowRight className="h-6 w-6 text-muted-foreground mb-1" />
@@ -284,148 +250,73 @@ const Transferencias = () => {
                       </div>
                       <div className="flex flex-col items-center gap-2 w-1/3">
                           <span className="text-xs text-muted-foreground uppercase font-semibold text-center truncate w-full">{destProgramName}</span>
-                          <Input 
-                              type="number" 
-                              className="h-12 text-xl font-black text-center shadow-sm" 
-                              value={parityOut} 
-                              onChange={e => setParityOut(e.target.value)} 
-                          />
+                          <Input type="number" className="h-12 text-xl font-black text-center shadow-sm" value={parityOut} onChange={e => setParityOut(e.target.value)} />
                       </div>
                   </div>
               </div>
 
               <div className="grid md:grid-cols-2 gap-6 pt-2">
-                {/* Quantidade */}
                 <div className="space-y-2">
                   <Label className="text-destructive font-medium">Qtd. de Pontos a Enviar</Label>
                   <div className="relative">
-                    <Input 
-                        type="number" 
-                        placeholder="0" 
-                        className={`h-12 text-lg font-bold pl-4 border-destructive/30 focus-visible:ring-destructive ${!calculation.hasBalance ? 'text-destructive' : ''}`}
-                        value={amount}
-                        onChange={e => setAmount(e.target.value)}
-                    />
+                    <Input type="number" placeholder="0" className={`h-12 text-lg font-bold pl-4 border-destructive/30 focus-visible:ring-destructive ${!calculation.hasBalance ? 'text-destructive' : ''}`} value={amount} onChange={e => setAmount(e.target.value)} />
                     <div className="absolute right-3 top-3 text-xs font-bold text-destructive/70 px-2 py-0.5 rounded bg-destructive/10">SAÍDA</div>
                   </div>
-                  {selectedAccount && sourceProgram && (
-                      <div className="flex items-center justify-between text-xs mt-1">
-                          <span className={`font-medium ${!calculation.hasBalance ? 'text-destructive' : 'text-muted-foreground'}`}>
-                              Estoque atual: {currentBalance.toLocaleString('pt-BR')}
-                          </span>
-                          <Button variant="link" className="h-auto p-0 text-xs text-primary" onClick={handleUseMax}>Usar tudo</Button>
-                      </div>
-                  )}
                 </div>
                 
-                {/* Bônus */}
                 <div className="space-y-2">
-                  <Label className="text-emerald-500 font-medium flex items-center gap-1">Bônus da Promoção</Label>
+                  <Label className="text-emerald-500 font-medium flex items-center gap-1">Bônus da Promoção (%)</Label>
                   <div className="relative">
                     <Percent className="absolute left-3 top-3 h-5 w-5 text-emerald-500/50" />
-                    <Input 
-                        type="number" 
-                        placeholder="0" 
-                        className="h-12 text-lg font-bold text-emerald-500 pl-10 border-emerald-500/30 focus-visible:ring-emerald-500"
-                        value={bonusPercent}
-                        onChange={e => setBonusPercent(e.target.value)}
-                    />
+                    <Input type="number" placeholder="0" className="h-12 text-lg font-bold text-emerald-500 pl-10 border-emerald-500/30 focus-visible:ring-emerald-500" value={bonusPercent} onChange={e => setBonusPercent(e.target.value)} />
                   </div>
-                  <p className="text-[11px] text-muted-foreground mt-1">O bônus é aplicado sobre a conversão base.</p>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* PASSO 3: FINANCEIRO */}
-          <Card className="shadow-sm">
+          {/* PASSO 3: CUSTOS - NOVA UX VINCULADA À COMPRA REAL */}
+          <Card className="shadow-sm border-l-4 border-l-accent">
             <CardHeader className="pb-4">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Calculator className="h-5 w-5 text-primary" />
-                3. Custos e Data
+              <CardTitle className="text-lg flex items-center gap-2 text-accent">
+                <ShoppingCart className="h-5 w-5" />
+                3. Custos Adicionais (Carrinho) e Data
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <Label>Data da Operação</Label>
-                  <div className="relative">
-                    <CalendarIcon className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                    <Input 
-                      type="date" 
-                      className="pl-9 h-11"
-                      value={date}
-                      onChange={e => setDate(e.target.value)}
-                    />
-                  </div>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label>Custo da Operação (R$)</Label>
-                  <Input 
-                      type="text" 
-                      placeholder="Ex: 1154,75 (Compra de pontos)" 
-                      className="h-11"
-                      value={costAmount}
-                      onChange={e => setCostAmount(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              {calculation.cost > 0 && (
-                <div className="space-y-4 pt-4 border-t animate-in fade-in">
-                    <div className="flex items-center justify-between bg-muted/20 p-3 rounded-lg border">
-                        <Label className="flex items-center gap-2 cursor-pointer font-medium">
-                            <CreditCard className="h-4 w-4 text-primary" />
-                            Paguei com Cartão de Crédito
-                        </Label>
-                        <Switch checked={useCreditCard} onCheckedChange={setUseCreditCard} />
+            <CardContent className="space-y-6 pt-2">
+                <div className="grid md:grid-cols-2 gap-6 items-end">
+                    <div className="space-y-2 relative">
+                        <Label>Data da Operação (Saída)</Label>
+                        <Input type="date" className="h-11" value={date} onChange={e => setDate(e.target.value)} />
                     </div>
 
-                    {useCreditCard ? (
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label>Cartão Utilizado</Label>
-                                <Select value={selectedCardId} onValueChange={setSelectedCardId}>
-                                    <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                                    <SelectContent>{creditCards?.map(card => (<SelectItem key={card.id} value={card.id}>{card.name}</SelectItem>))}</SelectContent>
-                                </Select>
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Parcelas</Label>
-                                <Select value={installmentCount} onValueChange={setInstallmentCount}>
-                                    <SelectTrigger><SelectValue /></SelectTrigger>
-                                    <SelectContent>{Array.from({ length: 12 }, (_, i) => i + 1).map(n => (<SelectItem key={n} value={n.toString()}>{n}x</SelectItem>))}</SelectContent>
-                                </Select>
-                            </div>
+                    <div className="space-y-2">
+                        <Label className="flex items-center gap-1">
+                            Custo da Operação (R$)
+                            {linkedPurchaseId && (<Badge className="bg-success text-success-foreground h-5 text-[10px]" variant="secondary">Vinculado à Compra #{linkedPurchaseId.slice(0, 8)}</Badge>)}
+                        </Label>
+                        <div className="flex gap-2">
+                            {/* O campo de custo agora é READ-ONLY. O valor vem do modal. */}
+                            <Input 
+                                type="text" 
+                                placeholder="Clique no botão para vincular compra" 
+                                className="h-11 bg-muted/50 font-semibold"
+                                value={purchasedTotalCost !== null ? purchasedTotalCost.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'}) : ''}
+                                readOnly
+                            />
+                            {/* NOVO BOTÃO UX: Abre o modal de compra detalhada */}
+                            <Button 
+                                type="button" 
+                                className="gradient-primary h-11 flex items-center gap-2"
+                                onClick={() => setIsPurchaseModalOpen(true)}
+                                title="Abra a janela de Nova Compra para detalhar o custo do carrinho, cartão e parcelas."
+                            >
+                                <ShoppingCart className="h-4 w-4" />
+                                + Vincular Compra
+                            </Button>
                         </div>
-                    ) : (
-                        <div className="space-y-2">
-                            <Label className="flex items-center justify-between">
-                                Vencimento (Dinheiro/Pix)
-                                <Button type="button" variant="ghost" size="sm" className="h-6 text-xs text-primary p-0" onClick={() => setManualDueDate(getTodayString())}>
-                                    <CalendarCheck className="w-3 h-3 mr-1"/> Hoje
-                                </Button>
-                            </Label>
-                            <Input type="date" className="max-w-[200px]" value={manualDueDate} onChange={e => setManualDueDate(e.target.value)} />
-                        </div>
-                    )}
-
-                    {installmentPreview.length > 0 && (
-                        <div className="pt-2">
-                            <Label className="text-xs text-muted-foreground mb-2 block">Previsão Contas a Pagar</Label>
-                            <div className="space-y-1 max-h-32 overflow-y-auto border rounded p-2 bg-background/50">
-                                {installmentPreview.map(inst => (
-                                    <div key={inst.installmentNumber} className="flex justify-between items-center text-xs p-1">
-                                        <span className="text-muted-foreground">{inst.installmentNumber}ª parc - {format(inst.dueDate, 'dd/MM/yy')}</span>
-                                        <span className="font-medium text-destructive">{formatCurrency(inst.amount)}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
+                    </div>
                 </div>
-              )}
             </CardContent>
           </Card>
         </div>
@@ -473,43 +364,35 @@ const Transferencias = () => {
                         </div>
                         
                         <div className="flex justify-between items-center">
-                            <span className="text-sm text-muted-foreground">
-                                Conversão ({calculation.pIn}:{calculation.pOut})
-                            </span>
-                            <span className="font-medium text-foreground">
-                                {calculation.baseDestino.toLocaleString('pt-BR')}
-                            </span>
+                            <span className="text-sm text-muted-foreground">Conversão Base ({calculation.pIn}:{calculation.pOut})</span>
+                            <span className="font-medium text-foreground">{calculation.baseDestino.toLocaleString('pt-BR')}</span>
                         </div>
 
                         {calculation.bonus > 0 && (
                             <div className="flex justify-between items-center">
-                                <span className="text-sm text-muted-foreground">Bônus (+{calculation.bonus}%)</span>
+                                <span className="text-sm text-muted-foreground">Bônus Real (+{calculation.bonus}%)</span>
                                 <span className="font-bold text-emerald-500">+ {calculation.bonusAmount.toLocaleString('pt-BR')}</span>
                             </div>
                         )}
 
                         {calculation.cost > 0 && (
                             <div className="flex justify-between items-center bg-destructive/10 p-2.5 rounded-lg border border-destructive/20 text-destructive mt-2">
-                                <span className="text-sm font-semibold">Custo em Dinheiro</span>
+                                <span className="text-sm font-semibold flex items-center gap-1"><CreditCard className="h-3 w-3" /> Custo Vinculado (Carrinho)</span>
                                 <span className="font-bold">- {formatCurrency(calculation.cost)}</span>
                             </div>
                         )}
 
                         <div className="bg-primary/10 p-5 rounded-xl border border-primary/30 mt-6 shadow-sm">
                             <div className="text-xs text-primary uppercase tracking-widest mb-1 text-center font-bold">Saldo Final a Receber</div>
-                            <div className="text-4xl font-black text-center text-primary tracking-tight">
-                                {calculation.totalDestino.toLocaleString('pt-BR')}
-                            </div>
-                            <div className="text-center text-xs text-muted-foreground mt-2 font-medium">
-                                creditados em {destProgramName}
-                            </div>
+                            <div className="text-4xl font-black text-center text-primary tracking-tight">{calculation.totalDestino.toLocaleString('pt-BR')}</div>
+                            <div className="text-center text-xs text-muted-foreground mt-2 font-medium">creditados em {destProgramName}</div>
                         </div>
                     </div>
                 </CardContent>
 
                 <div className="p-6 pt-0 mt-auto">
                     <Button 
-                        className="w-full h-14 text-lg font-bold shadow-lg hover:scale-[1.02] transition-transform" 
+                        className="w-full h-14 text-lg font-bold shadow-lg gradient-primary hover:scale-[1.02] transition-transform" 
                         onClick={handleTransfer}
                         disabled={isSubmitting}
                     >
@@ -519,6 +402,21 @@ const Transferencias = () => {
             </Card>
         </div>
       </div>
+
+      {/* --- O PULO DO GATO NO UX: Injeta o Modal de Nova Compra/Transação --- */}
+      <TransactionModal
+          open={isPurchaseModalOpen}
+          onOpenChange={(open) => {
+              setIsPurchaseModalOpen(open);
+              // Limpa os vínculos se fechar o modal sem salvar (cancelar)
+              if (!open && !linkedPurchaseId) {
+                  setPurchasedTotalCost(null);
+                  setLinkedPurchaseId(null);
+              }
+          }}
+          // IMPORTANTE: Adiciona uma propriedade para receber o ID e o custo calculados
+          onSuccessCallback={handlePurchaseComplete}
+      />
     </MainLayout>
   );
 };
