@@ -13,10 +13,11 @@ import {
     useMilesBalance, 
     useCreateTransfer
 } from '@/hooks/useSupabaseData';
+import { formatCurrency } from '@/utils/financeLogic';
 import { toast } from 'sonner';
-import { ArrowRight, Calculator, CalendarIcon, User, Wallet, ArrowRightLeft, CreditCard, Scale, Percent, ShoppingCart, Plus, CalendarCheck } from 'lucide-react';
+import { ArrowRight, Calculator, CalendarIcon, User, Wallet, ArrowRightLeft, Scale, Percent, ShoppingCart } from 'lucide-react';
 
-// IMPORTANTE: Importamos o Modal de Compra Real
+// Importamos o Modal de Compra Real
 import { TransactionModal } from '@/components/transactions/TransactionModal';
 
 // --- UTILITÁRIO DATA SEGURA ---
@@ -42,16 +43,16 @@ const Transferencias = () => {
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(getTodayString());
   
-  // Estados de Regra de Negócio (UX)
+  // Estados de Regra de Negócio
   const [parityIn, setParityIn] = useState('1');
   const [parityOut, setParityOut] = useState('1');
   const [bonusPercent, setBonusPercent] = useState('0');
 
-  // Estados de Compra Vinculada (NOVO UX)
+  // Estados de Compra Vinculada (Visual)
   const [purchasedTotalCost, setPurchasedTotalCost] = useState<number | null>(null);
   const [linkedPurchaseId, setLinkedPurchaseId] = useState<string | null>(null);
 
-  // Estado do Modal de Compra (NOVO UX)
+  // Estado do Modal de Compra
   const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false);
 
   const isSubmitting = createTransfer.isPending;
@@ -70,25 +71,24 @@ const Transferencias = () => {
     return registro ? registro.balance : 0;
   }, [selectedAccount, sourceProgram, milesBalance]);
 
-  // --- CÁLCULOS VISUAIS (Com Paridade Real) ---
+  // --- CÁLCULOS VISUAIS ---
   const calculation = useMemo(() => {
     const qtdOrigem = parseFloat(amount) || 0;
     const pIn = parseFloat(parityIn) || 1;
     const pOut = parseFloat(parityOut) || 1;
     const bonus = parseFloat(bonusPercent) || 0;
-    const cost = purchasedTotalCost || 0;
     
-    // Calcula a conversão base (ex: 148000 / 2 * 1 = 74000)
+    // Calcula a conversão base
     const baseDestino = Math.floor((qtdOrigem / pIn) * pOut);
     
-    // Calcula o bônus em cima do que chegou no destino (ex: 20% de 74000 = 14800)
+    // Calcula o bônus em cima do que chegou no destino
     const bonusAmount = Math.floor(baseDestino * (bonus / 100));
     
     const totalDestino = baseDestino + bonusAmount;
     const hasBalance = currentBalance >= qtdOrigem;
     
-    return { qtdOrigem, pIn, pOut, baseDestino, bonus, bonusAmount, totalDestino, hasBalance, cost };
-  }, [amount, parityIn, parityOut, bonusPercent, currentBalance, purchasedTotalCost]);
+    return { qtdOrigem, pIn, pOut, baseDestino, bonus, bonusAmount, totalDestino, hasBalance };
+  }, [amount, parityIn, parityOut, bonusPercent, currentBalance]);
 
   const handleUseMax = () => {
     setAmount(currentBalance.toString());
@@ -126,10 +126,10 @@ const Transferencias = () => {
             quantidadeOrigem: calculation.qtdOrigem,
             quantidadeDestino: calculation.totalDestino, 
             dataTransferencia: date,
-            // Custo agora vem da compra vinculada
-            custoTransferencia: purchasedTotalCost || 0,
-            linkedPurchaseId: linkedPurchaseId || null, 
-            observacao: `Paridade ${parityIn}:${parityOut} | Bônus: ${bonusPercent}%${linkedPurchaseId ? ` | Custo de Compra #${linkedPurchaseId.slice(0, 8)}` : ''}`
+            // ATENÇÃO: Como a compra foi feita no Modal, ela já entrou no custo da Origem!
+            // Não enviamos custo extra aqui para não duplicar no Contas a Pagar.
+            custoTransferencia: 0, 
+            observacao: `Paridade ${parityIn}:${parityOut} | Bônus: ${bonusPercent}%${linkedPurchaseId ? ` (Carrinho #${linkedPurchaseId.slice(0, 8)})` : ''}`
         });
 
         // Limpa formulário
@@ -147,14 +147,10 @@ const Transferencias = () => {
 
   // --- FUNÇÃO DE SUCESSO DO MODAL DE COMPRA ---
   const handlePurchaseComplete = (newTransactionId: string, totalCost: number) => {
-      // 1. Vincula o ID da compra à transferência para rastreio
       setLinkedPurchaseId(newTransactionId);
-      // 2. Preenche automaticamente o custo total na transferência (O PULO DO GATO!)
       setPurchasedTotalCost(totalCost);
-      // 3. Fecha o modal
       setIsPurchaseModalOpen(false);
-      // 4. Feedback visual
-      toast.success(`Compra #${newTransactionId.slice(0, 8)} de R$ ${totalCost.toLocaleString('pt-BR')} vinculada com sucesso!`);
+      toast.success(`Compra registrada! Seu saldo na Origem foi atualizado.`);
   };
 
   return (
@@ -227,7 +223,7 @@ const Transferencias = () => {
             </CardContent>
           </Card>
 
-          {/* PASSO 2: REGRAS E QUANTIDADE */}
+          {/* PASSO 2: REGRAS E QUANTIDADE (AGORA COM A DATA AQUI) */}
           <Card className="border-l-4 border-l-secondary shadow-sm">
             <CardHeader className="pb-4">
               <CardTitle className="text-lg flex items-center gap-2">
@@ -237,6 +233,7 @@ const Transferencias = () => {
             </CardHeader>
             <CardContent className="space-y-6">
               
+              {/* Paridade Visual */}
               <div className="space-y-3">
                   <Label>Paridade (Fator de Conversão)</Label>
                   <div className="flex items-center justify-between bg-muted/20 p-4 rounded-xl border border-border/50">
@@ -255,68 +252,114 @@ const Transferencias = () => {
                   </div>
               </div>
 
-              <div className="grid md:grid-cols-2 gap-6 pt-2">
+              {/* GRID DE 3 COLUNAS: Qtd, Bônus, Data */}
+              <div className="grid md:grid-cols-3 gap-4 pt-2">
+                {/* Quantidade */}
                 <div className="space-y-2">
-                  <Label className="text-destructive font-medium">Qtd. de Pontos a Enviar</Label>
+                  <Label className="text-destructive font-medium">Qtd. de Saída</Label>
                   <div className="relative">
-                    <Input type="number" placeholder="0" className={`h-12 text-lg font-bold pl-4 border-destructive/30 focus-visible:ring-destructive ${!calculation.hasBalance ? 'text-destructive' : ''}`} value={amount} onChange={e => setAmount(e.target.value)} />
-                    <div className="absolute right-3 top-3 text-xs font-bold text-destructive/70 px-2 py-0.5 rounded bg-destructive/10">SAÍDA</div>
+                    <Input 
+                        type="number" 
+                        placeholder="0" 
+                        className={`h-11 font-bold pl-3 border-destructive/30 focus-visible:ring-destructive ${!calculation.hasBalance ? 'text-destructive' : ''}`}
+                        value={amount}
+                        onChange={e => setAmount(e.target.value)}
+                    />
                   </div>
+                  {selectedAccount && sourceProgram && (
+                      <div className="flex items-center justify-between text-[11px] mt-1">
+                          <span className={`${!calculation.hasBalance ? 'text-destructive font-bold' : 'text-muted-foreground'}`}>
+                              Estoque: {currentBalance.toLocaleString('pt-BR')}
+                          </span>
+                          <Button variant="link" className="h-auto p-0 text-[11px] text-primary" onClick={handleUseMax}>Usar tudo</Button>
+                      </div>
+                  )}
                 </div>
                 
+                {/* Bônus */}
                 <div className="space-y-2">
-                  <Label className="text-emerald-500 font-medium flex items-center gap-1">Bônus da Promoção (%)</Label>
+                  <Label className="text-emerald-500 font-medium">Bônus Promo (%)</Label>
                   <div className="relative">
-                    <Percent className="absolute left-3 top-3 h-5 w-5 text-emerald-500/50" />
-                    <Input type="number" placeholder="0" className="h-12 text-lg font-bold text-emerald-500 pl-10 border-emerald-500/30 focus-visible:ring-emerald-500" value={bonusPercent} onChange={e => setBonusPercent(e.target.value)} />
+                    <Percent className="absolute left-3 top-3 h-4 w-4 text-emerald-500/50" />
+                    <Input 
+                        type="number" 
+                        placeholder="0" 
+                        className="h-11 font-bold text-emerald-500 pl-9 border-emerald-500/30 focus-visible:ring-emerald-500"
+                        value={bonusPercent}
+                        onChange={e => setBonusPercent(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {/* Data */}
+                <div className="space-y-2">
+                  <Label>Data da Operação</Label>
+                  <div className="relative">
+                    <CalendarIcon className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                    <Input 
+                      type="date" 
+                      className="pl-9 h-11"
+                      value={date}
+                      onChange={e => setDate(e.target.value)}
+                    />
                   </div>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* PASSO 3: CUSTOS - NOVA UX VINCULADA À COMPRA REAL */}
+          {/* PASSO 3: COMPRA DE PONTOS (UX LIMPO) */}
           <Card className="shadow-sm border-l-4 border-l-accent">
             <CardHeader className="pb-4">
               <CardTitle className="text-lg flex items-center gap-2 text-accent">
                 <ShoppingCart className="h-5 w-5" />
-                3. Custos Adicionais (Carrinho) e Data
+                3. Compra de Pontos (Opcional)
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-6 pt-2">
-                <div className="grid md:grid-cols-2 gap-6 items-end">
-                    <div className="space-y-2 relative">
-                        <Label>Data da Operação (Saída)</Label>
-                        <Input type="date" className="h-11" value={date} onChange={e => setDate(e.target.value)} />
+            <CardContent>
+                {!linkedPurchaseId ? (
+                    <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-xl bg-muted/10 hover:bg-muted/30 transition-colors">
+                        <p className="text-sm text-muted-foreground mb-4 text-center leading-relaxed">
+                            Faltaram milhas na conta de origem?<br/>
+                            Registre a compra que você fez no carrinho para que o sistema<br/>
+                            atualize seu estoque e alimente o <strong>Contas a Pagar</strong> corretamente.
+                        </p>
+                        <Button 
+                            type="button" 
+                            className="bg-accent hover:bg-accent/90 text-accent-foreground shadow-sm"
+                            onClick={() => setIsPurchaseModalOpen(true)}
+                        >
+                            <ShoppingCart className="h-4 w-4 mr-2" />
+                            + Registrar Compra de Pontos
+                        </Button>
                     </div>
-
-                    <div className="space-y-2">
-                        <Label className="flex items-center gap-1">
-                            Custo da Operação (R$)
-                            {linkedPurchaseId && (<Badge className="bg-success text-success-foreground h-5 text-[10px]" variant="secondary">Vinculado à Compra #{linkedPurchaseId.slice(0, 8)}</Badge>)}
-                        </Label>
-                        <div className="flex gap-2">
-                            {/* O campo de custo agora é READ-ONLY. O valor vem do modal. */}
-                            <Input 
-                                type="text" 
-                                placeholder="Clique no botão para vincular compra" 
-                                className="h-11 bg-muted/50 font-semibold"
-                                value={purchasedTotalCost !== null ? purchasedTotalCost.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'}) : ''}
-                                readOnly
-                            />
-                            {/* NOVO BOTÃO UX: Abre o modal de compra detalhada */}
-                            <Button 
-                                type="button" 
-                                className="gradient-primary h-11 flex items-center gap-2"
-                                onClick={() => setIsPurchaseModalOpen(true)}
-                                title="Abra a janela de Nova Compra para detalhar o custo do carrinho, cartão e parcelas."
-                            >
-                                <ShoppingCart className="h-4 w-4" />
-                                + Vincular Compra
-                            </Button>
+                ) : (
+                    <div className="flex items-center justify-between p-4 bg-success/10 border border-success/20 rounded-xl">
+                        <div className="flex items-center gap-4">
+                            <div className="bg-success/20 p-3 rounded-full">
+                                <ShoppingCart className="h-5 w-5 text-success" />
+                            </div>
+                            <div>
+                                <p className="font-bold text-success-foreground">Compra vinculada e Estoque atualizado!</p>
+                                <p className="text-xs text-success-foreground/80 mt-0.5">
+                                    Valor da compra: {purchasedTotalCost?.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})} (Ref: #{linkedPurchaseId.slice(0,8)})
+                                </p>
+                            </div>
                         </div>
+                        <Button 
+                            type="button" 
+                            variant="ghost" 
+                            size="sm" 
+                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => {
+                                setLinkedPurchaseId(null);
+                                setPurchasedTotalCost(null);
+                            }}
+                        >
+                            Remover Vínculo
+                        </Button>
                     </div>
-                </div>
+                )}
             </CardContent>
           </Card>
         </div>
@@ -376,9 +419,9 @@ const Transferencias = () => {
                         )}
 
                         {calculation.cost > 0 && (
-                            <div className="flex justify-between items-center bg-destructive/10 p-2.5 rounded-lg border border-destructive/20 text-destructive mt-2">
-                                <span className="text-sm font-semibold flex items-center gap-1"><CreditCard className="h-3 w-3" /> Custo Vinculado (Carrinho)</span>
-                                <span className="font-bold">- {formatCurrency(calculation.cost)}</span>
+                            <div className="flex justify-between items-center bg-accent/10 p-2.5 rounded-lg border border-accent/20 text-accent mt-2">
+                                <span className="text-sm font-semibold flex items-center gap-1"><ShoppingCart className="h-3 w-3" /> Custo do Carrinho</span>
+                                <span className="font-bold">{formatCurrency(calculation.cost)}</span>
                             </div>
                         )}
 
@@ -403,18 +446,16 @@ const Transferencias = () => {
         </div>
       </div>
 
-      {/* --- O PULO DO GATO NO UX: Injeta o Modal de Nova Compra/Transação --- */}
+      {/* --- MODAL DE COMPRA --- */}
       <TransactionModal
           open={isPurchaseModalOpen}
           onOpenChange={(open) => {
               setIsPurchaseModalOpen(open);
-              // Limpa os vínculos se fechar o modal sem salvar (cancelar)
               if (!open && !linkedPurchaseId) {
                   setPurchasedTotalCost(null);
                   setLinkedPurchaseId(null);
               }
           }}
-          // IMPORTANTE: Adiciona uma propriedade para receber o ID e o custo calculados
           onSuccessCallback={handlePurchaseComplete}
       />
     </MainLayout>
