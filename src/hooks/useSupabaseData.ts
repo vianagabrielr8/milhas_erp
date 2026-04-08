@@ -196,19 +196,24 @@ export const useCreateSale = () => {
   });
 };
 
-// 2. TRANSFERÊNCIA
+// 2. TRANSFERÊNCIA (AGORA COM FINANCEIRO INTEGRADO)
 export const useCreateTransfer = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (transferData: any) => {
       const { data: { user } } = await supabase.auth.getUser();
-      const { contaOrigemId, programaOrigemId, contaDestinoId, programaDestinoId, quantidadeOrigem, quantidadeDestino, dataTransferencia, custoTransferencia = 0, observacao } = transferData;
+      const { 
+          contaOrigemId, programaOrigemId, contaDestinoId, programaDestinoId, 
+          quantidadeOrigem, quantidadeDestino, dataTransferencia, observacao,
+          custoTransferencia = 0, useCreditCard, cardId, installments, dueDateList 
+      } = transferData;
 
       const qtdSai = Math.abs(parseCurrency(quantidadeOrigem));
       const qtdEntra = Math.abs(parseCurrency(quantidadeDestino));
       const taxa = parseCurrency(custoTransferencia);
 
+      // 1. Busca Histórico da Origem para calcular CPM
       const { data: historico, error: erroHist } = await supabase
         .from('transactions')
         .select('quantity, total_cost')
@@ -238,6 +243,7 @@ export const useCreateTransfer = () => {
           custoTotalSaindo = (qtdSai / 1000) * cpmOrigem;
       }
 
+      // 2. Transação de Saída (Origem)
       const { error: errorOrigem } = await supabase.from('transactions').insert({
         user_id: user?.id, 
         account_id: contaOrigemId, 
@@ -246,14 +252,15 @@ export const useCreateTransfer = () => {
         quantity: -qtdSai, 
         total_cost: custoTotalSaindo, 
         transaction_date: dataTransferencia,
-        description: `Transf. para ${programaDestinoId} (Saída)`,
+        description: `Transf. para o programa ID: ${programaDestinoId} (Saída)`,
         notes: `CPM Origem: ${cpmOrigem.toFixed(2)} | Migrou: R$ ${custoTotalSaindo.toFixed(2)}`
       });
       if (errorOrigem) throw errorOrigem;
 
+      // 3. Transação de Entrada (Destino)
       const custoFinalEntrada = custoTotalSaindo + taxa;
       
-      const { error: errorDestino } = await supabase.from('transactions').insert({
+      const { data: transDestino, error: errorDestino } = await supabase.from('transactions').insert({
         user_id: user?.id, 
         account_id: contaDestinoId, 
         program_id: programaDestinoId, 
@@ -261,15 +268,41 @@ export const useCreateTransfer = () => {
         quantity: qtdEntra,
         total_cost: custoFinalEntrada, 
         transaction_date: dataTransferencia,
-        description: `Transf. de ${programaOrigemId} (Entrada)`,
-        notes: `${observacao || ''} | Custo Herdado: R$ ${custoTotalSaindo.toFixed(2)} + Taxas: R$ ${taxa.toFixed(2)}`
-      });
+        description: `Transf. do programa ID: ${programaOrigemId} (Entrada)`,
+        notes: `${observacao || ''} | Custo Herdado: R$ ${custoTotalSaindo.toFixed(2)} + Custos Extras: R$ ${taxa.toFixed(2)}`
+      }).select().single(); // Precisamos do ID para vincular o Contas a Pagar
+      
       if (errorDestino) throw errorDestino;
+
+      // 4. Lógica Financeira (Contas a Pagar)
+      if (taxa > 0 && transDestino) {
+          const { data: payable } = await supabase.from('payables').insert({
+              user_id: user?.id,
+              transaction_id: transDestino.id, // Vincula à entrada das milhas
+              credit_card_id: useCreditCard ? cardId : null,
+              description: `Custo de Transferência / Compra de Pontos`,
+              total_amount: taxa,
+              installments: useCreditCard ? installments : 1
+          }).select().single();
+
+          if (payable && dueDateList && dueDateList.length > 0) {
+              const parcelasInsert = dueDateList.map((item: any) => ({
+                  user_id: user?.id,
+                  payable_id: payable.id,
+                  installment_number: item.installmentNumber,
+                  amount: item.amount,
+                  due_date: item.dueDate,
+                  status: 'PENDENTE'
+              }));
+              await supabase.from('payable_installments').insert(parcelasInsert);
+          }
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] }); 
       queryClient.invalidateQueries({ queryKey: ['miles_balance'] });
-      toast.success('Transferência realizada!');
+      queryClient.invalidateQueries({ queryKey: ['payable_installments'] }); // Atualiza financeiro
+      toast.success('Transferência e financeiro registrados!');
     },
     onError: (error: any) => { toast.error(`${error.message}`); }
   });
