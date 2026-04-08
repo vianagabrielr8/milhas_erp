@@ -21,7 +21,7 @@ import {
     useDeleteSale,
     useCreditCards
 } from '@/hooks/useSupabaseData';
-import { calculateCardDates } from '@/utils/financeLogic';
+import { calculateCardDates, formatCPM, formatCurrency } from '@/utils/financeLogic';
 
 // --- FUNÇÃO DE DATA SEGURA (FIX) ---
 const formatDateSafe = (dateString: string) => {
@@ -54,6 +54,9 @@ const Vendas = () => {
     const [passageirosVenda, setPassageirosVenda] = useState<PassageiroVenda[]>([]);
     const [novoPassageiro, setNovoPassageiro] = useState({ nome: '', cpf: '' });
 
+    // NOVO UX DE PREÇO: Milheiro vs Bruto
+    const [inputMode, setInputMode] = useState<'MILHEIRO' | 'TOTAL'>('MILHEIRO');
+
     // ESTADOS PARA TAXAS
     const [hasTax, setHasTax] = useState(false);
     const [taxType, setTaxType] = useState<'MONEY' | 'MILES'>('MONEY');
@@ -65,6 +68,7 @@ const Vendas = () => {
         contaId: '',
         quantidade: '',
         valorUnitario: '',
+        valorTotalBruto: '', // Adicionado para controlar o input do Total
         dataVenda: new Date().toLocaleDateString('en-CA'),
         dataRecebimento: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
         status: 'pendente' as 'pendente' | 'recebido',
@@ -85,11 +89,13 @@ const Vendas = () => {
             contaId: '',
             quantidade: '',
             valorUnitario: '',
+            valorTotalBruto: '',
             dataVenda: new Date().toLocaleDateString('en-CA'),
             dataRecebimento: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
             status: 'pendente',
             observacoes: '',
         });
+        setInputMode('MILHEIRO');
         setParcelas(1);
         setPassageirosVenda([]);
         setNovoPassageiro({ nome: '', cpf: '' });
@@ -98,6 +104,42 @@ const Vendas = () => {
         setTaxAmount('');
         setTaxCardId('');
     };
+
+    // Alternar entre Milheiro e Total com cálculo automático
+    const handleModeSwitch = (mode: 'MILHEIRO' | 'TOTAL') => {
+        if (mode === inputMode) return;
+        
+        const baseQ = parseInt(formData.quantidade) || 0;
+        if (mode === 'TOTAL') {
+            if (formData.valorUnitario && baseQ > 0) {
+                const cost = (baseQ / 1000) * parseFloat(formData.valorUnitario.replace(',', '.'));
+                setFormData(prev => ({ ...prev, valorTotalBruto: cost.toFixed(2).replace('.', ',') }));
+            }
+        } else {
+            if (formData.valorTotalBruto && baseQ > 0) {
+                const cpm = parseFloat(formData.valorTotalBruto.replace(',', '.')) / (baseQ / 1000);
+                setFormData(prev => ({ ...prev, valorUnitario: cpm.toFixed(2).replace('.', ',') }));
+            }
+        }
+        setInputMode(mode);
+    };
+
+    // Calcula de forma reativa os valores (Base Qtd, CPM e Total) para Preview e Submit
+    const derivedValues = useMemo(() => {
+        const baseQ = parseInt(formData.quantidade) || 0;
+        let cpm = 0;
+        let total = 0;
+
+        if (inputMode === 'MILHEIRO') {
+            cpm = parseFloat(formData.valorUnitario.toString().replace(',', '.')) || 0;
+            total = (baseQ / 1000) * cpm;
+        } else {
+            total = parseFloat(formData.valorTotalBruto.toString().replace(',', '.')) || 0;
+            cpm = baseQ > 0 ? total / (baseQ / 1000) : 0;
+        }
+
+        return { baseQ, cpm, total };
+    }, [formData.quantidade, formData.valorUnitario, formData.valorTotalBruto, inputMode]);
 
     const handleAddPassageiro = () => {
         if (!novoPassageiro.nome.trim() || !novoPassageiro.cpf.trim()) {
@@ -126,15 +168,12 @@ const Vendas = () => {
             return;
         }
 
-        let quantidadeFinal = parseInt(formData.quantidade);
-        
-        const valUnitString = formData.valorUnitario.toString().replace(',', '.');
-        const valorUnitario = parseFloat(valUnitString);
+        let quantidadeFinal = derivedValues.baseQ;
+        const valorUnitario = derivedValues.cpm;
+        let valorTotalFinal = derivedValues.total;
         
         const taxString = taxAmount.toString().replace(',', '.');
         const taxaValor = parseFloat(taxString) || 0;
-
-        let valorTotalFinal = (quantidadeFinal / 1000) * valorUnitario;
 
         let taxPayload = null;
         let observacaoFinal = formData.observacoes;
@@ -371,14 +410,49 @@ const Vendas = () => {
                                         />
                                     </div>
                                     <div className="space-y-2">
-                                        <Label>Valor Unitário (R$/1000)</Label>
-                                        <Input 
-                                            type="text" 
-                                            value={formData.valorUnitario}
-                                            onChange={(e) => setFormData({ ...formData, valorUnitario: e.target.value })}
-                                            placeholder="20,50"
-                                            required
-                                        />
+                                        <div className="flex items-center justify-between mb-2">
+                                            <Label>Valor da Venda *</Label>
+                                            <div className="flex bg-muted/30 p-1 rounded-lg border border-border/50">
+                                                <button 
+                                                    type="button" 
+                                                    onClick={() => handleModeSwitch('MILHEIRO')} 
+                                                    className={`px-3 py-1 text-[11px] font-medium rounded-md transition-all ${inputMode === 'MILHEIRO' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                                                >
+                                                    Por Milheiro
+                                                </button>
+                                                <button 
+                                                    type="button" 
+                                                    onClick={() => handleModeSwitch('TOTAL')} 
+                                                    className={`px-3 py-1 text-[11px] font-medium rounded-md transition-all ${inputMode === 'TOTAL' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                                                >
+                                                    Valor Total
+                                                </button>
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="space-y-1">
+                                            {inputMode === 'MILHEIRO' ? (
+                                                <Input 
+                                                    type="text" 
+                                                    value={formData.valorUnitario}
+                                                    onChange={(e) => setFormData({ ...formData, valorUnitario: e.target.value })}
+                                                    placeholder="Ex: 20,50 (Milheiro)"
+                                                    required
+                                                />
+                                            ) : (
+                                                <Input 
+                                                    type="text" 
+                                                    value={formData.valorTotalBruto}
+                                                    onChange={(e) => setFormData({ ...formData, valorTotalBruto: e.target.value })}
+                                                    placeholder="Ex: 1155,96 (Total Bruto)"
+                                                    required
+                                                />
+                                            )}
+                                            <div className="flex justify-between items-center text-[11px] font-medium text-muted-foreground pt-1">
+                                                <span className="text-primary/70">{inputMode === 'TOTAL' && derivedValues.baseQ > 0 ? `CPM Base: ${formatCPM(derivedValues.cpm)}` : ''}</span>
+                                                <span>Subtotal: {formatCurrency(derivedValues.total)}</span>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
 
@@ -474,7 +548,7 @@ const Vendas = () => {
                                     </div>
                                 </div>
 
-                                {/* Parcelamento da Venda - AGORA MOSTRA O TOTAL CORRETO */}
+                                {/* Parcelamento da Venda - TOTAL CORRETO */}
                                 {formData.status === 'pendente' && (
                                     <div className="space-y-2 border-t pt-4 bg-muted/20 p-3 rounded-lg">
                                         <Label className="text-primary font-medium">Parcelamento da Venda</Label>
@@ -499,30 +573,23 @@ const Vendas = () => {
                                                         const dataPrevista = new Date(dataBase.valueOf());
                                                         if (i > 0) dataPrevista.setMonth(dataPrevista.getMonth() + i);
                                                         
-                                                        let qtd = parseInt(formData.quantidade) || 0;
-                                                        const valUnitString = formData.valorUnitario.toString().replace(',', '.');
-                                                        const valUnit = parseFloat(valUnitString) || 0;
-                                                        
-                                                        let totalBase = (qtd/1000) * valUnit;
+                                                        // Puxa o totalBase financeiro reativo que criamos na função derivedValues
+                                                        let totalBase = derivedValues.total;
 
-                                                        // AQUI ESTÁ A CORREÇÃO: SOMAR A TAXA NO TOTAL DA VENDA (SE FOR MONEY) PARA VISUALIZAR
                                                         if (hasTax) {
                                                             const taxString = taxAmount.toString().replace(',', '.');
                                                             const tx = parseFloat(taxString) || 0;
 
                                                             if (taxType === 'MONEY') {
-                                                                // Se for dinheiro, adiciona o valor da taxa no total financeiro a receber
                                                                 if (tx > 0) totalBase += tx;
                                                             } else if (taxType === 'MILES') {
-                                                                // Se for milhas, a taxa é milha. Então recalcula o total somando a milha.
                                                                 if (tx > 0) {
-                                                                    const qtdTotal = qtd + tx;
-                                                                    totalBase = (qtdTotal/1000) * valUnit;
+                                                                    const qtdTotal = derivedValues.baseQ + tx;
+                                                                    totalBase = (qtdTotal/1000) * derivedValues.cpm;
                                                                 }
                                                             }
                                                         }
                                                         
-                                                        // O valor da parcela considera o Total Base já com a taxa (se for money)
                                                         const valorParc = totalBase / (parcelas || 1);
                                                         
                                                         return (
