@@ -17,10 +17,8 @@ import { formatCurrency } from '@/utils/financeLogic';
 import { toast } from 'sonner';
 import { ArrowRight, Calculator, CalendarIcon, User, Wallet, ArrowRightLeft, Scale, Percent, ShoppingCart } from 'lucide-react';
 
-// Importamos o Modal de Compra Real
 import { TransactionModal } from '@/components/transactions/TransactionModal';
 
-// --- UTILITÁRIO DATA SEGURA ---
 const getTodayString = () => {
     const d = new Date();
     const year = d.getFullYear();
@@ -36,33 +34,27 @@ const Transferencias = () => {
   
   const createTransfer = useCreateTransfer();
 
-  // Estados Base
   const [selectedAccount, setSelectedAccount] = useState('');
   const [sourceProgram, setSourceProgram] = useState('');
   const [destProgram, setDestProgram] = useState('');
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(getTodayString());
   
-  // Estados de Regra de Negócio
   const [parityIn, setParityIn] = useState('1');
   const [parityOut, setParityOut] = useState('1');
   const [bonusPercent, setBonusPercent] = useState('0');
 
-  // Estados de Compra Vinculada (Visual)
   const [purchasedTotalCost, setPurchasedTotalCost] = useState<number | null>(null);
   const [linkedPurchaseId, setLinkedPurchaseId] = useState<string | null>(null);
 
-  // Estado do Modal de Compra
   const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false);
 
   const isSubmitting = createTransfer.isPending;
 
-  // Nomes para exibição
   const accountName = accounts?.find(a => a.id === selectedAccount)?.name || 'Titular';
   const sourceProgramName = programs?.find(p => p.id === sourceProgram)?.name || 'Origem';
   const destProgramName = programs?.find(p => p.id === destProgram)?.name || 'Destino';
 
-  // --- LÓGICA DE SALDO ---
   const currentBalance = useMemo(() => {
     if (!selectedAccount || !sourceProgram || !milesBalance) return 0;
     const registro = milesBalance.find(
@@ -71,19 +63,14 @@ const Transferencias = () => {
     return registro ? registro.balance : 0;
   }, [selectedAccount, sourceProgram, milesBalance]);
 
-  // --- CÁLCULOS VISUAIS ---
   const calculation = useMemo(() => {
     const qtdOrigem = parseFloat(amount) || 0;
     const pIn = parseFloat(parityIn) || 1;
     const pOut = parseFloat(parityOut) || 1;
     const bonus = parseFloat(bonusPercent) || 0;
     
-    // Calcula a conversão base
     const baseDestino = Math.floor((qtdOrigem / pIn) * pOut);
-    
-    // Calcula o bônus em cima do que chegou no destino
     const bonusAmount = Math.floor(baseDestino * (bonus / 100));
-    
     const totalDestino = baseDestino + bonusAmount;
     const hasBalance = currentBalance >= qtdOrigem;
     
@@ -94,7 +81,6 @@ const Transferencias = () => {
     setAmount(currentBalance.toString());
   };
 
-  // --- AÇÃO: TRANSFERIR ---
   const handleTransfer = async () => {
     if (!selectedAccount || !sourceProgram || !destProgram || !amount || !date) {
       toast.error('Preencha todos os campos obrigatórios.');
@@ -126,13 +112,10 @@ const Transferencias = () => {
             quantidadeOrigem: calculation.qtdOrigem,
             quantidadeDestino: calculation.totalDestino, 
             dataTransferencia: date,
-            // ATENÇÃO: Como a compra foi feita no Modal, ela já entrou no custo da Origem!
-            // Não enviamos custo extra aqui para não duplicar no Contas a Pagar.
             custoTransferencia: 0, 
             observacao: `Paridade ${parityIn}:${parityOut} | Bônus: ${bonusPercent}%${linkedPurchaseId ? ` (Carrinho #${linkedPurchaseId.slice(0, 8)})` : ''}`
         });
 
-        // Limpa formulário
         setAmount('');
         setBonusPercent('0');
         setParityIn('1');
@@ -145,7 +128,6 @@ const Transferencias = () => {
     }
   };
 
-  // --- FUNÇÃO DE SUCESSO DO MODAL DE COMPRA ---
   const handlePurchaseComplete = (newTransactionId: string, totalCost: number) => {
       setLinkedPurchaseId(newTransactionId);
       setPurchasedTotalCost(totalCost);
@@ -165,7 +147,6 @@ const Transferencias = () => {
         {/* ESQUERDA: INPUTS */}
         <div className="lg:col-span-7 space-y-6">
           
-          {/* PASSO 1: ROTA */}
           <Card className="border-l-4 border-l-primary shadow-sm">
             <CardHeader className="pb-4">
               <CardTitle className="text-lg flex items-center gap-2">
@@ -223,7 +204,6 @@ const Transferencias = () => {
             </CardContent>
           </Card>
 
-          {/* PASSO 2: REGRAS E QUANTIDADE (AGORA COM A DATA AQUI) */}
           <Card className="border-l-4 border-l-secondary shadow-sm">
             <CardHeader className="pb-4">
               <CardTitle className="text-lg flex items-center gap-2">
@@ -233,7 +213,6 @@ const Transferencias = () => {
             </CardHeader>
             <CardContent className="space-y-6">
               
-              {/* Paridade Visual */}
               <div className="space-y-3">
                   <Label>Paridade (Fator de Conversão)</Label>
                   <div className="flex items-center justify-between bg-muted/20 p-4 rounded-xl border border-border/50">
@@ -252,9 +231,7 @@ const Transferencias = () => {
                   </div>
               </div>
 
-              {/* GRID DE 3 COLUNAS: Qtd, Bônus, Data */}
               <div className="grid md:grid-cols-3 gap-4 pt-2">
-                {/* Quantidade */}
                 <div className="space-y-2">
                   <Label className="text-destructive font-medium">Qtd. de Saída</Label>
                   <div className="relative">
@@ -276,7 +253,6 @@ const Transferencias = () => {
                   )}
                 </div>
                 
-                {/* Bônus */}
                 <div className="space-y-2">
                   <Label className="text-emerald-500 font-medium">Bônus Promo (%)</Label>
                   <div className="relative">
@@ -291,7 +267,6 @@ const Transferencias = () => {
                   </div>
                 </div>
 
-                {/* Data */}
                 <div className="space-y-2">
                   <Label>Data da Operação</Label>
                   <div className="relative">
@@ -308,7 +283,6 @@ const Transferencias = () => {
             </CardContent>
           </Card>
 
-          {/* PASSO 3: COMPRA DE PONTOS (UX LIMPO) */}
           <Card className="shadow-sm border-l-4 border-l-accent">
             <CardHeader className="pb-4">
               <CardTitle className="text-lg flex items-center gap-2 text-accent">
@@ -318,15 +292,13 @@ const Transferencias = () => {
             </CardHeader>
             <CardContent>
                 {!linkedPurchaseId ? (
-                    <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-xl bg-muted/10 hover:bg-muted/30 transition-colors">
-                        <p className="text-sm text-muted-foreground mb-4 text-center leading-relaxed">
-                            Faltaram milhas na conta de origem?<br/>
-                            Registre a compra que você fez no carrinho para que o sistema<br/>
-                            atualize seu estoque e alimente o <strong>Contas a Pagar</strong> corretamente.
+                    <div className="space-y-3">
+                        <p className="text-sm text-muted-foreground">
+                            Faltaram milhas na conta de origem? Registre a compra que você fez no carrinho para que o sistema atualize seu estoque e alimente o <strong>Contas a Pagar</strong> corretamente.
                         </p>
                         <Button 
                             type="button" 
-                            className="bg-accent hover:bg-accent/90 text-accent-foreground shadow-sm"
+                            className="bg-accent hover:bg-accent/90 text-accent-foreground"
                             onClick={() => setIsPurchaseModalOpen(true)}
                         >
                             <ShoppingCart className="h-4 w-4 mr-2" />
@@ -334,15 +306,13 @@ const Transferencias = () => {
                         </Button>
                     </div>
                 ) : (
-                    <div className="flex items-center justify-between p-4 bg-success/10 border border-success/20 rounded-xl">
-                        <div className="flex items-center gap-4">
-                            <div className="bg-success/20 p-3 rounded-full">
-                                <ShoppingCart className="h-5 w-5 text-success" />
-                            </div>
+                    <div className="flex items-center justify-between p-4 bg-success/10 border border-success/20 rounded-lg">
+                        <div className="flex items-center gap-3">
+                            <ShoppingCart className="h-5 w-5 text-success" />
                             <div>
-                                <p className="font-bold text-success-foreground">Compra vinculada e Estoque atualizado!</p>
-                                <p className="text-xs text-success-foreground/80 mt-0.5">
-                                    Valor da compra: {purchasedTotalCost?.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})} (Ref: #{linkedPurchaseId.slice(0,8)})
+                                <p className="font-bold text-success-foreground">Compra vinculada com sucesso!</p>
+                                <p className="text-xs text-success-foreground/80">
+                                    Valor: {purchasedTotalCost?.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})} (Ref: #{linkedPurchaseId.slice(0,8)})
                                 </p>
                             </div>
                         </div>
@@ -350,13 +320,13 @@ const Transferencias = () => {
                             type="button" 
                             variant="ghost" 
                             size="sm" 
-                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                            className="text-destructive hover:bg-destructive/10"
                             onClick={() => {
                                 setLinkedPurchaseId(null);
                                 setPurchasedTotalCost(null);
                             }}
                         >
-                            Remover Vínculo
+                            Remover
                         </Button>
                     </div>
                 )}
@@ -418,10 +388,10 @@ const Transferencias = () => {
                             </div>
                         )}
 
-                        {calculation.cost > 0 && (
+                        {purchasedTotalCost !== null && purchasedTotalCost > 0 && (
                             <div className="flex justify-between items-center bg-accent/10 p-2.5 rounded-lg border border-accent/20 text-accent mt-2">
                                 <span className="text-sm font-semibold flex items-center gap-1"><ShoppingCart className="h-3 w-3" /> Custo do Carrinho</span>
-                                <span className="font-bold">{formatCurrency(calculation.cost)}</span>
+                                <span className="font-bold">{formatCurrency(purchasedTotalCost)}</span>
                             </div>
                         )}
 
@@ -446,7 +416,6 @@ const Transferencias = () => {
         </div>
       </div>
 
-      {/* --- MODAL DE COMPRA --- */}
       <TransactionModal
           open={isPurchaseModalOpen}
           onOpenChange={(open) => {
