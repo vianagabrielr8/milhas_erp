@@ -80,7 +80,7 @@ type TransactionType = Database['public']['Enums']['transaction_type'];
 interface TransactionModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSuccessCallback?: (transactionId: string, totalCost: number) => void; // NOVO: Retorno para a Transferência
+  onSuccessCallback?: (transactionId: string, totalCost: number) => void;
 }
 
 export function TransactionModal({
@@ -114,7 +114,7 @@ export function TransactionModal({
   const [transactionType, setTransactionType] = useState<TransactionType>('COMPRA');
   const [quantity, setQuantity] = useState('');
   
-  // NOVO UX DE PREÇO: Milheiro vs Bruto
+  // UX DE PREÇO: Milheiro vs Bruto
   const [inputMode, setInputMode] = useState<'MILHEIRO' | 'TOTAL'>('MILHEIRO');
   const [unitPrice, setUnitPrice] = useState('');
   const [totalPrice, setTotalPrice] = useState('');
@@ -235,7 +235,7 @@ export function TransactionModal({
 
   const calculatedTotal = finalValues.revenue;
 
-  // CÁLCULO DE DATA DO CARTÃO (USANDO DATA SEGURA COM MEIO-DIA)
+  // CÁLCULO DE DATA DO CARTÃO
   const firstPaymentDate = useMemo(() => {
     if (useCreditCard && selectedCardId) {
       const card = creditCards?.find(c => c.id === selectedCardId);
@@ -384,7 +384,7 @@ export function TransactionModal({
             );
         }
 
-      // NOVO: Retorna a execução para quem chamou (Ex: a tela de Transferência)
+      // Retorna a execução para quem chamou (Transferência)
       if (onSuccessCallback) {
           onSuccessCallback(transaction.id, revenue);
       } else {
