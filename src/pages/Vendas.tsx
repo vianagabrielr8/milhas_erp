@@ -11,7 +11,7 @@ import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"; 
 import { Plus, Trash2, User, UserPlus, X, CalendarIcon, Plane, CreditCard } from 'lucide-react';
 import { format, addDays } from 'date-fns';
-import { ptBR } from 'date-fns/locale'; // IMPORTANTE
+import { ptBR } from 'date-fns/locale'; 
 import { toast } from 'sonner';
 import { 
     usePrograms, 
@@ -26,8 +26,6 @@ import { calculateCardDates } from '@/utils/financeLogic';
 // --- FUNÇÃO DE DATA SEGURA (FIX) ---
 const formatDateSafe = (dateString: string) => {
     if (!dateString) return '-';
-    // Se a string for YYYY-MM-DD simples, adiciona T12:00:00 para travar no meio-dia
-    // Se já tiver horário (T...), usa como está
     const safeDate = dateString.includes('T') ? dateString : `${dateString}T12:00:00`;
     return format(new Date(safeDate), 'dd/MM/yyyy', { locale: ptBR });
 };
@@ -67,7 +65,6 @@ const Vendas = () => {
         contaId: '',
         quantidade: '',
         valorUnitario: '',
-        // Inicializa com data segura (string pura)
         dataVenda: new Date().toLocaleDateString('en-CA'),
         dataRecebimento: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
         status: 'pendente' as 'pendente' | 'recebido',
@@ -149,7 +146,6 @@ const Vendas = () => {
                 
                 if (cartao) {
                     try {
-                        // Calcula data do cartão usando SAFE DATE (Meio dia)
                         const safeSaleDate = new Date(formData.dataVenda + 'T12:00:00');
                         const datas = calculateCardDates(safeSaleDate, cartao.closing_day, cartao.due_day);
                         dataVencimentoCartao = format(datas.dueDate, 'yyyy-MM-dd');
@@ -185,7 +181,7 @@ const Vendas = () => {
             quantidade: quantidadeFinal, 
             valorUnitario, 
             valorTotal: valorTotalFinal,
-            dataVenda: formData.dataVenda, // Envia string pura
+            dataVenda: formData.dataVenda, 
             dataRecebimento: formData.dataRecebimento,
             status: formData.status,
             observacoes: observacaoFinal,
@@ -212,7 +208,6 @@ const Vendas = () => {
         {
             key: 'dataVenda',
             header: 'Data',
-            // --- AQUI ESTÁ A CORREÇÃO DE VISUALIZAÇÃO ---
             render: (venda: any) => formatDateSafe(venda.transaction_date || venda.created_at),
         },
         {
@@ -460,7 +455,7 @@ const Vendas = () => {
                                         <Input 
                                             type="date" 
                                             value={formData.dataVenda}
-                                            onChange={(e) => setFormData({...formData, dataVenda: e.target.value})} // Alterado para setFormData diretamente
+                                            onChange={(e) => setFormData({...formData, dataVenda: e.target.value})} 
                                             required
                                         />
                                     </div>
@@ -479,7 +474,7 @@ const Vendas = () => {
                                     </div>
                                 </div>
 
-                                {/* Parcelamento da Venda */}
+                                {/* Parcelamento da Venda - AGORA MOSTRA O TOTAL CORRETO */}
                                 {formData.status === 'pendente' && (
                                     <div className="space-y-2 border-t pt-4 bg-muted/20 p-3 rounded-lg">
                                         <Label className="text-primary font-medium">Parcelamento da Venda</Label>
@@ -508,19 +503,32 @@ const Vendas = () => {
                                                         const valUnitString = formData.valorUnitario.toString().replace(',', '.');
                                                         const valUnit = parseFloat(valUnitString) || 0;
                                                         
-                                                        if (hasTax && taxType === 'MILES') {
+                                                        let totalBase = (qtd/1000) * valUnit;
+
+                                                        // AQUI ESTÁ A CORREÇÃO: SOMAR A TAXA NO TOTAL DA VENDA (SE FOR MONEY) PARA VISUALIZAR
+                                                        if (hasTax) {
                                                             const taxString = taxAmount.toString().replace(',', '.');
                                                             const tx = parseFloat(taxString) || 0;
-                                                            if (tx > 0) qtd += tx;
+
+                                                            if (taxType === 'MONEY') {
+                                                                // Se for dinheiro, adiciona o valor da taxa no total financeiro a receber
+                                                                if (tx > 0) totalBase += tx;
+                                                            } else if (taxType === 'MILES') {
+                                                                // Se for milhas, a taxa é milha. Então recalcula o total somando a milha.
+                                                                if (tx > 0) {
+                                                                    const qtdTotal = qtd + tx;
+                                                                    totalBase = (qtdTotal/1000) * valUnit;
+                                                                }
+                                                            }
                                                         }
                                                         
-                                                        const total = (qtd/1000) * valUnit;
-                                                        const valorParc = total / (parcelas || 1);
+                                                        // O valor da parcela considera o Total Base já com a taxa (se for money)
+                                                        const valorParc = totalBase / (parcelas || 1);
                                                         
                                                         return (
                                                             <div key={i} className="flex justify-between items-center border-b border-border/50 pb-1 last:border-0 last:pb-0">
                                                                 <span className="font-medium">{i + 1}ª Parc: {dataPrevista.toLocaleDateString('pt-BR')}</span>
-                                                                <span className="text-primary">{valorParc.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                                                                <span className="text-primary font-bold">{valorParc.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
                                                             </div>
                                                         );
                                                     })}
