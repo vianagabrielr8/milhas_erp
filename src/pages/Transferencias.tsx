@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
 import { 
     useAccounts, 
     usePrograms, 
@@ -16,7 +17,7 @@ import {
 } from '@/hooks/useSupabaseData';
 import { calculateCardDates, generateInstallments, formatCurrency } from '@/utils/financeLogic';
 import { toast } from 'sonner';
-import { ArrowRight, Calculator, CalendarIcon, User, Wallet, ArrowRightLeft, CreditCard, CalendarCheck, Calendar } from 'lucide-react';
+import { ArrowRight, Calculator, CalendarIcon, User, Wallet, ArrowRightLeft, CreditCard, CalendarCheck, Calendar, Scale, Percent } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -46,10 +47,14 @@ const Transferencias = () => {
   const [sourceProgram, setSourceProgram] = useState('');
   const [destProgram, setDestProgram] = useState('');
   const [amount, setAmount] = useState('');
-  const [bonusPercent, setBonusPercent] = useState('0');
   const [date, setDate] = useState(getTodayString());
   
-  // Estados Financeiros (NOVO)
+  // Estados de Regra de Negócio (NOVO UX)
+  const [parityIn, setParityIn] = useState('1');
+  const [parityOut, setParityOut] = useState('1');
+  const [bonusPercent, setBonusPercent] = useState('0');
+
+  // Estados Financeiros
   const [costAmount, setCostAmount] = useState('');
   const [useCreditCard, setUseCreditCard] = useState(false);
   const [selectedCardId, setSelectedCardId] = useState('');
@@ -57,6 +62,11 @@ const Transferencias = () => {
   const [manualDueDate, setManualDueDate] = useState(getTodayString());
 
   const isSubmitting = createTransfer.isPending;
+
+  // Nomes para exibição
+  const accountName = accounts?.find(a => a.id === selectedAccount)?.name || 'Titular';
+  const sourceProgramName = programs?.find(p => p.id === sourceProgram)?.name || 'Origem';
+  const destProgramName = programs?.find(p => p.id === destProgram)?.name || 'Destino';
 
   // --- LÓGICA DE SALDO ---
   const currentBalance = useMemo(() => {
@@ -67,17 +77,25 @@ const Transferencias = () => {
     return registro ? registro.balance : 0;
   }, [selectedAccount, sourceProgram, milesBalance]);
 
-  // --- CÁLCULOS VISUAIS ---
+  // --- CÁLCULOS VISUAIS (Com Paridade Real) ---
   const calculation = useMemo(() => {
-    const qtd = parseFloat(amount) || 0;
+    const qtdOrigem = parseFloat(amount) || 0;
+    const pIn = parseFloat(parityIn) || 1;
+    const pOut = parseFloat(parityOut) || 1;
     const bonus = parseFloat(bonusPercent) || 0;
-    const bonusAmount = Math.floor(qtd * (bonus / 100));
-    const total = qtd + bonusAmount;
-    const hasBalance = currentBalance >= qtd;
     const cost = parseFloat(costAmount.toString().replace(',', '.')) || 0;
     
-    return { qtd, bonus, bonusAmount, total, hasBalance, cost };
-  }, [amount, bonusPercent, currentBalance, costAmount]);
+    // Calcula a conversão base (ex: 148000 / 2 * 1 = 74000)
+    const baseDestino = Math.floor((qtdOrigem / pIn) * pOut);
+    
+    // Calcula o bônus em cima do que chegou no destino (ex: 20% de 74000 = 14800)
+    const bonusAmount = Math.floor(baseDestino * (bonus / 100));
+    
+    const totalDestino = baseDestino + bonusAmount;
+    const hasBalance = currentBalance >= qtdOrigem;
+    
+    return { qtdOrigem, pIn, pOut, baseDestino, bonus, bonusAmount, totalDestino, hasBalance, cost };
+  }, [amount, parityIn, parityOut, bonusPercent, currentBalance, costAmount]);
 
   const handleUseMax = () => {
     setAmount(currentBalance.toString());
@@ -95,9 +113,7 @@ const Transferencias = () => {
         );
       }
     }
-    return manualDueDate 
-      ? createSafeDate(manualDueDate) 
-      : createSafeDate(date);
+    return manualDueDate ? createSafeDate(manualDueDate) : createSafeDate(date);
   }, [useCreditCard, selectedCardId, date, manualDueDate, creditCards]);
 
   const installmentPreview = useMemo(() => {
@@ -118,8 +134,8 @@ const Transferencias = () => {
       return;
     }
 
-    if (calculation.qtd <= 0) {
-      toast.error('Quantidade inválida.');
+    if (calculation.qtdOrigem <= 0 || calculation.pIn <= 0 || calculation.pOut <= 0) {
+      toast.error('Quantidades e paridades devem ser maiores que zero.');
       return;
     }
 
@@ -128,13 +144,12 @@ const Transferencias = () => {
         return;
     }
 
-    if (calculation.qtd > currentBalance) {
-        if (!confirm('ATENÇÃO: Você está transferindo mais pontos do que consta no estoque. Deseja continuar e ficar negativo?')) {
+    if (calculation.qtdOrigem > currentBalance) {
+        if (!confirm(`ATENÇÃO: Você tem apenas ${currentBalance.toLocaleString()} na origem, mas quer transferir ${calculation.qtdOrigem.toLocaleString()}. O estoque ficará negativo. Deseja continuar?`)) {
             return;
         }
     }
 
-    // Prepara a lista de vencimentos formatada YYYY-MM-DD
     const dueDateList = installmentPreview.map(i => ({
         installmentNumber: i.installmentNumber,
         amount: i.amount,
@@ -147,20 +162,22 @@ const Transferencias = () => {
             programaOrigemId: sourceProgram,
             contaDestinoId: selectedAccount, 
             programaDestinoId: destProgram,
-            quantidadeOrigem: calculation.qtd,
-            quantidadeDestino: calculation.total, 
+            quantidadeOrigem: calculation.qtdOrigem,
+            quantidadeDestino: calculation.totalDestino, 
             dataTransferencia: date,
-            custoTransferencia: calculation.cost, // Custo enviado
+            custoTransferencia: calculation.cost,
             useCreditCard: useCreditCard,
             cardId: selectedCardId,
             installments: Number(installmentCount),
             dueDateList: dueDateList,
-            observacao: `Bônus de ${bonusPercent}%`
+            observacao: `Paridade ${parityIn}:${parityOut} | Bônus: ${bonusPercent}%`
         });
 
         // Limpa formulário
         setAmount('');
         setBonusPercent('0');
+        setParityIn('1');
+        setParityOut('1');
         setCostAmount('');
         
     } catch (error) {
@@ -168,31 +185,27 @@ const Transferencias = () => {
     }
   };
 
-  const accountName = accounts?.find(a => a.id === selectedAccount)?.name || '...';
-  const sourceProgramName = programs?.find(p => p.id === sourceProgram)?.name || '...';
-  const destProgramName = programs?.find(p => p.id === destProgram)?.name || '...';
-
   return (
     <MainLayout>
       <PageHeader 
-        title="Transferência Bonificada" 
-        description="Mova pontos internamente e registre custos adicionais."
+        title="Transferência Inteligente" 
+        description="Transfira pontos com paridade personalizada, bônus real e custos."
       />
 
-      <div className="grid gap-6 lg:grid-cols-12 max-w-7xl mx-auto">
+      <div className="grid gap-6 lg:grid-cols-12 max-w-7xl mx-auto pb-10">
         
         {/* ESQUERDA: INPUTS */}
         <div className="lg:col-span-7 space-y-6">
           
-          <Card className="border-l-4 border-l-primary">
+          {/* PASSO 1: ROTA */}
+          <Card className="border-l-4 border-l-primary shadow-sm">
             <CardHeader className="pb-4">
               <CardTitle className="text-lg flex items-center gap-2">
                 <ArrowRightLeft className="h-5 w-5 text-primary" />
-                Configurar Rota
+                1. Rota da Transferência
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              
               <div className="space-y-2">
                 <Label className="flex items-center gap-2 text-primary font-semibold">
                     <User className="h-4 w-4" />
@@ -210,10 +223,7 @@ const Transferencias = () => {
                 </Select>
               </div>
 
-              <div className="border-t border-border/50" />
-
-              <div className="grid md:grid-cols-2 gap-6">
-                  {/* ORIGEM */}
+              <div className="grid md:grid-cols-2 gap-6 pt-2">
                   <div className="space-y-3">
                     <Label className="text-muted-foreground">Sai de (Origem)</Label>
                     <Select value={sourceProgram} onValueChange={setSourceProgram}>
@@ -226,25 +236,8 @@ const Transferencias = () => {
                         ))}
                         </SelectContent>
                     </Select>
-                    
-                    {selectedAccount && sourceProgram && (
-                        <div className="flex items-center justify-between text-xs bg-muted/30 p-2 rounded border">
-                            <span className="text-muted-foreground">Disponível:</span>
-                            <div className="flex items-center gap-2">
-                                <span className="font-bold">{currentBalance.toLocaleString('pt-BR')}</span>
-                                <Button 
-                                    variant="link" 
-                                    className="h-auto p-0 text-xs text-primary" 
-                                    onClick={handleUseMax}
-                                >
-                                    Usar tudo
-                                </Button>
-                            </div>
-                        </div>
-                    )}
                   </div>
 
-                  {/* DESTINO */}
                   <div className="space-y-3">
                     <Label className="text-muted-foreground">Entra em (Destino)</Label>
                     <Select value={destProgram} onValueChange={setDestProgram}>
@@ -262,49 +255,101 @@ const Transferencias = () => {
             </CardContent>
           </Card>
 
-          {/* VALORES E CUSTOS */}
-          <Card>
+          {/* PASSO 2: REGRAS E QUANTIDADE */}
+          <Card className="border-l-4 border-l-secondary shadow-sm">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Scale className="h-5 w-5 text-secondary" />
+                2. Regras e Quantidade
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              
+              {/* Paridade Visual */}
+              <div className="space-y-3">
+                  <Label>Paridade (Fator de Conversão)</Label>
+                  <div className="flex items-center justify-between bg-muted/20 p-4 rounded-xl border border-border/50">
+                      <div className="flex flex-col items-center gap-2 w-1/3">
+                          <span className="text-xs text-muted-foreground uppercase font-semibold text-center truncate w-full">{sourceProgramName}</span>
+                          <Input 
+                              type="number" 
+                              className="h-12 text-xl font-black text-center shadow-sm" 
+                              value={parityIn} 
+                              onChange={e => setParityIn(e.target.value)} 
+                          />
+                      </div>
+                      <div className="flex flex-col items-center justify-center w-1/3 pt-6">
+                          <ArrowRight className="h-6 w-6 text-muted-foreground mb-1" />
+                          <Badge variant="secondary" className="text-[10px]">EQUIVALE A</Badge>
+                      </div>
+                      <div className="flex flex-col items-center gap-2 w-1/3">
+                          <span className="text-xs text-muted-foreground uppercase font-semibold text-center truncate w-full">{destProgramName}</span>
+                          <Input 
+                              type="number" 
+                              className="h-12 text-xl font-black text-center shadow-sm" 
+                              value={parityOut} 
+                              onChange={e => setParityOut(e.target.value)} 
+                          />
+                      </div>
+                  </div>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-6 pt-2">
+                {/* Quantidade */}
+                <div className="space-y-2">
+                  <Label className="text-destructive font-medium">Qtd. de Pontos a Enviar</Label>
+                  <div className="relative">
+                    <Input 
+                        type="number" 
+                        placeholder="0" 
+                        className={`h-12 text-lg font-bold pl-4 border-destructive/30 focus-visible:ring-destructive ${!calculation.hasBalance ? 'text-destructive' : ''}`}
+                        value={amount}
+                        onChange={e => setAmount(e.target.value)}
+                    />
+                    <div className="absolute right-3 top-3 text-xs font-bold text-destructive/70 px-2 py-0.5 rounded bg-destructive/10">SAÍDA</div>
+                  </div>
+                  {selectedAccount && sourceProgram && (
+                      <div className="flex items-center justify-between text-xs mt-1">
+                          <span className={`font-medium ${!calculation.hasBalance ? 'text-destructive' : 'text-muted-foreground'}`}>
+                              Estoque atual: {currentBalance.toLocaleString('pt-BR')}
+                          </span>
+                          <Button variant="link" className="h-auto p-0 text-xs text-primary" onClick={handleUseMax}>Usar tudo</Button>
+                      </div>
+                  )}
+                </div>
+                
+                {/* Bônus */}
+                <div className="space-y-2">
+                  <Label className="text-emerald-500 font-medium flex items-center gap-1">Bônus da Promoção</Label>
+                  <div className="relative">
+                    <Percent className="absolute left-3 top-3 h-5 w-5 text-emerald-500/50" />
+                    <Input 
+                        type="number" 
+                        placeholder="0" 
+                        className="h-12 text-lg font-bold text-emerald-500 pl-10 border-emerald-500/30 focus-visible:ring-emerald-500"
+                        value={bonusPercent}
+                        onChange={e => setBonusPercent(e.target.value)}
+                    />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-1">O bônus é aplicado sobre a conversão base.</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* PASSO 3: FINANCEIRO */}
+          <Card className="shadow-sm">
             <CardHeader className="pb-4">
               <CardTitle className="text-lg flex items-center gap-2">
                 <Calculator className="h-5 w-5 text-primary" />
-                Valores e Custos
+                3. Custos e Data
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid md:grid-cols-2 gap-6">
                 <div className="space-y-2">
-                  <Label>Quantidade a Transferir</Label>
-                  <div className="relative">
-                    <Input 
-                        type="number" 
-                        placeholder="0" 
-                        className={`h-12 text-lg font-bold pl-4 ${!calculation.hasBalance ? 'border-destructive text-destructive' : ''}`}
-                        value={amount}
-                        onChange={e => setAmount(e.target.value)}
-                    />
-                    <div className="absolute right-3 top-3 text-xs font-bold text-muted-foreground px-2 py-0.5 rounded bg-muted">PTS</div>
-                  </div>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label>Bônus da Promoção (%)</Label>
-                  <div className="relative">
-                    <Input 
-                        type="number" 
-                        placeholder="0" 
-                        className="h-12 text-lg font-bold text-emerald-500"
-                        value={bonusPercent}
-                        onChange={e => setBonusPercent(e.target.value)}
-                    />
-                    <span className="absolute right-4 top-3 font-bold text-emerald-500">%</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-6 pt-2">
-                <div className="space-y-2">
                   <Label>Data da Operação</Label>
-                  <div className="relative max-w-[240px]">
+                  <div className="relative">
                     <CalendarIcon className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                     <Input 
                       type="date" 
@@ -324,61 +369,52 @@ const Transferencias = () => {
                       value={costAmount}
                       onChange={e => setCostAmount(e.target.value)}
                   />
-                  <p className="text-xs text-muted-foreground">Teve custo extra? Preencha para gerar Contas a Pagar.</p>
                 </div>
               </div>
 
-              {/* LÓGICA DE PAGAMENTO APARECE SE HOUVER CUSTO */}
               {calculation.cost > 0 && (
-                <div className="space-y-4 pt-4 border-t">
-                    <div className="flex items-center justify-between">
-                        <Label className="flex items-center gap-2">
-                            <CreditCard className="h-4 w-4" />
-                            Usou Cartão de Crédito?
+                <div className="space-y-4 pt-4 border-t animate-in fade-in">
+                    <div className="flex items-center justify-between bg-muted/20 p-3 rounded-lg border">
+                        <Label className="flex items-center gap-2 cursor-pointer font-medium">
+                            <CreditCard className="h-4 w-4 text-primary" />
+                            Paguei com Cartão de Crédito
                         </Label>
                         <Switch checked={useCreditCard} onCheckedChange={setUseCreditCard} />
                     </div>
 
                     {useCreditCard ? (
-                        <div className="space-y-4 p-4 border rounded-lg bg-muted/20">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label>Cartão Utilizado</Label>
-                                    <Select value={selectedCardId} onValueChange={setSelectedCardId}>
-                                        <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                                        <SelectContent>{creditCards?.map(card => (<SelectItem key={card.id} value={card.id}>{card.name}</SelectItem>))}</SelectContent>
-                                    </Select>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label>Parcelas</Label>
-                                    <Select value={installmentCount} onValueChange={setInstallmentCount}>
-                                        <SelectTrigger><SelectValue /></SelectTrigger>
-                                        <SelectContent>{Array.from({ length: 12 }, (_, i) => i + 1).map(n => (<SelectItem key={n} value={n.toString()}>{n}x</SelectItem>))}</SelectContent>
-                                    </Select>
-                                </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label>Cartão Utilizado</Label>
+                                <Select value={selectedCardId} onValueChange={setSelectedCardId}>
+                                    <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                                    <SelectContent>{creditCards?.map(card => (<SelectItem key={card.id} value={card.id}>{card.name}</SelectItem>))}</SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Parcelas</Label>
+                                <Select value={installmentCount} onValueChange={setInstallmentCount}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>{Array.from({ length: 12 }, (_, i) => i + 1).map(n => (<SelectItem key={n} value={n.toString()}>{n}x</SelectItem>))}</SelectContent>
+                                </Select>
                             </div>
                         </div>
                     ) : (
-                        <div className="space-y-4 p-4 border rounded-lg bg-muted/10">
-                            <div className="space-y-2">
-                                <Label className="flex items-center justify-between">
-                                    Data de Pagamento (Dinheiro/Pix)
-                                    <Button type="button" variant="ghost" size="sm" className="h-6 text-xs text-primary" onClick={() => setManualDueDate(getTodayString())}>
-                                        <CalendarCheck className="w-3 h-3 mr-1"/> Hoje
-                                    </Button>
-                                </Label>
-                                <Input type="date" value={manualDueDate} onChange={e => setManualDueDate(e.target.value)} />
-                            </div>
+                        <div className="space-y-2">
+                            <Label className="flex items-center justify-between">
+                                Vencimento (Dinheiro/Pix)
+                                <Button type="button" variant="ghost" size="sm" className="h-6 text-xs text-primary p-0" onClick={() => setManualDueDate(getTodayString())}>
+                                    <CalendarCheck className="w-3 h-3 mr-1"/> Hoje
+                                </Button>
+                            </Label>
+                            <Input type="date" className="max-w-[200px]" value={manualDueDate} onChange={e => setManualDueDate(e.target.value)} />
                         </div>
                     )}
 
                     {installmentPreview.length > 0 && (
                         <div className="pt-2">
-                            <div className="flex items-center gap-2 mb-3">
-                                <Calendar className="h-4 w-4 text-muted-foreground" />
-                                <span className="text-sm font-medium">Previsão de Pagamentos (A Pagar)</span>
-                            </div>
-                            <div className="space-y-2 max-h-32 overflow-y-auto border rounded p-2 bg-background">
+                            <Label className="text-xs text-muted-foreground mb-2 block">Previsão Contas a Pagar</Label>
+                            <div className="space-y-1 max-h-32 overflow-y-auto border rounded p-2 bg-background/50">
                                 {installmentPreview.map(inst => (
                                     <div key={inst.installmentNumber} className="flex justify-between items-center text-xs p-1">
                                         <span className="text-muted-foreground">{inst.installmentNumber}ª parc - {format(inst.dueDate, 'dd/MM/yy')}</span>
@@ -390,86 +426,94 @@ const Transferencias = () => {
                     )}
                 </div>
               )}
-
             </CardContent>
           </Card>
         </div>
 
         {/* DIREITA: RESUMO */}
         <div className="lg:col-span-5 space-y-6">
-            <Card className="h-full border border-primary/20 shadow-lg sticky top-6 flex flex-col">
-                <CardHeader className="bg-muted/10 border-b pb-4">
-                    <CardTitle className="flex items-center gap-2 text-primary">
+            <Card className="h-full border border-primary/20 shadow-xl sticky top-6 flex flex-col bg-gradient-to-b from-card to-muted/10">
+                <CardHeader className="bg-muted/20 border-b pb-4">
+                    <CardTitle className="flex items-center justify-center gap-2 text-primary">
                         <Wallet className="h-5 w-5" />
                         Resumo da Operação
                     </CardTitle>
                 </CardHeader>
                 
                 <CardContent className="flex-1 space-y-6 pt-6">
-                    <div className="space-y-4">
-                        <div className="flex justify-between items-center text-sm">
-                            <span className="text-muted-foreground">Titular:</span>
-                            <span className="font-bold flex items-center gap-1">
-                                <User className="h-3 w-3" /> {accountName}
-                            </span>
+                    <div className="text-center space-y-1">
+                        <span className="text-sm text-muted-foreground">Titular da Conta</span>
+                        <div className="font-bold text-lg flex items-center justify-center gap-2">
+                            <User className="h-4 w-4 text-primary" /> {accountName}
                         </div>
-                        
-                        <div className="relative p-4 rounded-lg border bg-card flex flex-col gap-2">
-                            <div className="flex justify-between">
-                                <span className="text-xs text-muted-foreground uppercase">Sai de</span>
-                                <span className="font-bold text-destructive">{sourceProgramName}</span>
+                    </div>
+                    
+                    <div className="relative p-5 rounded-xl border bg-background shadow-sm flex flex-col gap-3">
+                        <div className="flex justify-between items-center">
+                            <span className="text-xs text-muted-foreground font-bold tracking-wider">SAI DE</span>
+                            <Badge variant="destructive" className="uppercase">{sourceProgramName}</Badge>
+                        </div>
+                        <div className="flex justify-center -my-4 z-10">
+                            <div className="bg-background p-1.5 rounded-full border shadow-sm">
+                                <ArrowRight className="h-5 w-5 text-muted-foreground" />
                             </div>
-                            <div className="flex justify-center -my-3 z-10">
-                                <div className="bg-card p-1 rounded-full border">
-                                    <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                                </div>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-xs text-muted-foreground uppercase">Entra em</span>
-                                <span className="font-bold text-emerald-500">{destProgramName}</span>
-                            </div>
+                        </div>
+                        <div className="flex justify-between items-center mt-2">
+                            <span className="text-xs text-muted-foreground font-bold tracking-wider">ENTRA EM</span>
+                            <Badge className="bg-emerald-500 hover:bg-emerald-600 uppercase">{destProgramName}</Badge>
                         </div>
                     </div>
 
                     <div className="border-t border-dashed" />
 
-                    <div className="space-y-3">
+                    <div className="space-y-4">
                         <div className="flex justify-between items-center">
-                            <span className="text-sm text-muted-foreground">Pontos Base</span>
-                            <span className="font-medium text-destructive">- {calculation.qtd.toLocaleString('pt-BR')}</span>
+                            <span className="text-sm text-muted-foreground font-medium">Saída (Origem)</span>
+                            <span className="font-bold text-destructive text-lg">- {calculation.qtdOrigem.toLocaleString('pt-BR')}</span>
                         </div>
                         
                         <div className="flex justify-between items-center">
-                            <span className="text-sm text-muted-foreground">Bônus ({calculation.bonus}%)</span>
-                            <span className="font-medium text-emerald-500">+ {calculation.bonusAmount.toLocaleString('pt-BR')}</span>
+                            <span className="text-sm text-muted-foreground">
+                                Conversão ({calculation.pIn}:{calculation.pOut})
+                            </span>
+                            <span className="font-medium text-foreground">
+                                {calculation.baseDestino.toLocaleString('pt-BR')}
+                            </span>
                         </div>
 
+                        {calculation.bonus > 0 && (
+                            <div className="flex justify-between items-center">
+                                <span className="text-sm text-muted-foreground">Bônus (+{calculation.bonus}%)</span>
+                                <span className="font-bold text-emerald-500">+ {calculation.bonusAmount.toLocaleString('pt-BR')}</span>
+                            </div>
+                        )}
+
                         {calculation.cost > 0 && (
-                            <div className="flex justify-between items-center bg-destructive/10 p-2 rounded text-destructive">
-                                <span className="text-sm font-semibold">Custo Adicional</span>
+                            <div className="flex justify-between items-center bg-destructive/10 p-2.5 rounded-lg border border-destructive/20 text-destructive mt-2">
+                                <span className="text-sm font-semibold">Custo em Dinheiro</span>
                                 <span className="font-bold">- {formatCurrency(calculation.cost)}</span>
                             </div>
                         )}
 
-                        <div className="bg-primary/5 p-4 rounded-lg border border-primary/20 mt-4">
-                            <div className="text-xs text-primary/70 uppercase tracking-wide mb-1 text-center font-bold">Total a Receber</div>
-                            <div className="text-3xl font-black text-center text-primary">
-                                {calculation.total.toLocaleString('pt-BR')}
+                        <div className="bg-primary/10 p-5 rounded-xl border border-primary/30 mt-6 shadow-sm">
+                            <div className="text-xs text-primary uppercase tracking-widest mb-1 text-center font-bold">Saldo Final a Receber</div>
+                            <div className="text-4xl font-black text-center text-primary tracking-tight">
+                                {calculation.totalDestino.toLocaleString('pt-BR')}
                             </div>
-                            <div className="text-center text-xs text-muted-foreground mt-1">
-                                na conta {destProgramName}
+                            <div className="text-center text-xs text-muted-foreground mt-2 font-medium">
+                                creditados em {destProgramName}
                             </div>
                         </div>
                     </div>
                 </CardContent>
 
-                <div className="p-6 pt-0">
+                <div className="p-6 pt-0 mt-auto">
                     <Button 
-                        className="w-full h-12 text-lg font-bold shadow-lg" 
+                        className="w-full h-14 text-lg font-bold shadow-lg hover:scale-[1.02] transition-transform" 
                         onClick={handleTransfer}
                         disabled={isSubmitting}
                     >
-                        {isSubmitting ? 'Processando...' : 'Confirmar Operação'}
+                        {isSubmitting ? 'Processando...' : 'Confirmar Transferência'}
                     </Button>
                 </div>
             </Card>
