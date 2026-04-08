@@ -6,29 +6,56 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-// IMPORTANTE: Adicionei useCreateTransfer aqui
-import { useAccounts, usePrograms, useMilesBalance, useCreateTransfer } from '@/hooks/useSupabaseData';
+import { Switch } from '@/components/ui/switch';
+import { 
+    useAccounts, 
+    usePrograms, 
+    useMilesBalance, 
+    useCreateTransfer,
+    useCreditCards 
+} from '@/hooks/useSupabaseData';
+import { calculateCardDates, generateInstallments, formatCurrency } from '@/utils/financeLogic';
 import { toast } from 'sonner';
-import { ArrowRight, Calculator, CalendarIcon, User, Wallet, ArrowRightLeft } from 'lucide-react';
+import { ArrowRight, Calculator, CalendarIcon, User, Wallet, ArrowRightLeft, CreditCard, CalendarCheck, Calendar } from 'lucide-react';
 import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+
+// --- UTILITÁRIO DATA SEGURA ---
+const getTodayString = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+const createSafeDate = (dateString: string) => {
+    if (!dateString) return new Date();
+    return new Date(`${dateString}T12:00:00`);
+};
 
 const Transferencias = () => {
   const { data: accounts } = useAccounts();
   const { data: programs } = usePrograms();
   const { data: milesBalance } = useMilesBalance();
+  const { data: creditCards } = useCreditCards();
   
-  // Conecta com o nosso código "Trator"
   const createTransfer = useCreateTransfer();
 
-  // Estados
+  // Estados Base
   const [selectedAccount, setSelectedAccount] = useState('');
   const [sourceProgram, setSourceProgram] = useState('');
   const [destProgram, setDestProgram] = useState('');
   const [amount, setAmount] = useState('');
   const [bonusPercent, setBonusPercent] = useState('0');
-  const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [date, setDate] = useState(getTodayString());
   
-  // O estado de loading agora vem do hook
+  // Estados Financeiros (NOVO)
+  const [costAmount, setCostAmount] = useState('');
+  const [useCreditCard, setUseCreditCard] = useState(false);
+  const [selectedCardId, setSelectedCardId] = useState('');
+  const [installmentCount, setInstallmentCount] = useState('1');
+  const [manualDueDate, setManualDueDate] = useState(getTodayString());
+
   const isSubmitting = createTransfer.isPending;
 
   // --- LÓGICA DE SALDO ---
@@ -47,14 +74,39 @@ const Transferencias = () => {
     const bonusAmount = Math.floor(qtd * (bonus / 100));
     const total = qtd + bonusAmount;
     const hasBalance = currentBalance >= qtd;
-    return { qtd, bonus, bonusAmount, total, hasBalance };
-  }, [amount, bonusPercent, currentBalance]);
+    const cost = parseFloat(costAmount.toString().replace(',', '.')) || 0;
+    
+    return { qtd, bonus, bonusAmount, total, hasBalance, cost };
+  }, [amount, bonusPercent, currentBalance, costAmount]);
 
   const handleUseMax = () => {
     setAmount(currentBalance.toString());
   };
 
-  // --- AÇÃO: TRANSFERIR (AGORA USANDO O HOOK CORRETO) ---
+  // --- CÁLCULOS DO CARTÃO ---
+  const firstPaymentDate = useMemo(() => {
+    if (useCreditCard && selectedCardId) {
+      const card = creditCards?.find(c => c.id === selectedCardId);
+      if (card) {
+        return calculateCardDates(
+          createSafeDate(date), 
+          card.closing_day,
+          card.due_day,
+        );
+      }
+    }
+    return manualDueDate 
+      ? createSafeDate(manualDueDate) 
+      : createSafeDate(date);
+  }, [useCreditCard, selectedCardId, date, manualDueDate, creditCards]);
+
+  const installmentPreview = useMemo(() => {
+    const count = Number(installmentCount);
+    if (!calculation.cost || count <= 0) return [];
+    return generateInstallments(calculation.cost, count, firstPaymentDate);
+  }, [calculation.cost, installmentCount, firstPaymentDate]);
+
+  // --- AÇÃO: TRANSFERIR ---
   const handleTransfer = async () => {
     if (!selectedAccount || !sourceProgram || !destProgram || !amount || !date) {
       toast.error('Preencha todos os campos obrigatórios.');
@@ -71,38 +123,51 @@ const Transferencias = () => {
       return;
     }
 
+    if (calculation.cost > 0 && useCreditCard && !selectedCardId) {
+        toast.error('Selecione o cartão de crédito utilizado no custo.');
+        return;
+    }
+
     if (calculation.qtd > currentBalance) {
         if (!confirm('ATENÇÃO: Você está transferindo mais pontos do que consta no estoque. Deseja continuar e ficar negativo?')) {
             return;
         }
     }
 
-    // AQUI ESTÁ A MUDANÇA MÁGICA
-    // Em vez de chamar o supabase direto, chamamos nosso hook que tem a calculadora
+    // Prepara a lista de vencimentos formatada YYYY-MM-DD
+    const dueDateList = installmentPreview.map(i => ({
+        installmentNumber: i.installmentNumber,
+        amount: i.amount,
+        dueDate: format(i.dueDate, 'yyyy-MM-dd')
+    }));
+
     try {
         await createTransfer.mutateAsync({
             contaOrigemId: selectedAccount,
             programaOrigemId: sourceProgram,
-            contaDestinoId: selectedAccount, // Assume mesma conta (titularidade)
+            contaDestinoId: selectedAccount, 
             programaDestinoId: destProgram,
             quantidadeOrigem: calculation.qtd,
-            quantidadeDestino: calculation.total, // Já com bônus
+            quantidadeDestino: calculation.total, 
             dataTransferencia: date,
-            custoTransferencia: 0,
+            custoTransferencia: calculation.cost, // Custo enviado
+            useCreditCard: useCreditCard,
+            cardId: selectedCardId,
+            installments: Number(installmentCount),
+            dueDateList: dueDateList,
             observacao: `Bônus de ${bonusPercent}%`
         });
 
-        // Limpa formulário após sucesso
+        // Limpa formulário
         setAmount('');
         setBonusPercent('0');
+        setCostAmount('');
         
     } catch (error) {
-        // O erro já é tratado no hook, mas mantemos o catch para segurança
         console.error("Erro no formulário:", error);
     }
   };
 
-  // Nomes para exibição
   const accountName = accounts?.find(a => a.id === selectedAccount)?.name || '...';
   const sourceProgramName = programs?.find(p => p.id === sourceProgram)?.name || '...';
   const destProgramName = programs?.find(p => p.id === destProgram)?.name || '...';
@@ -111,7 +176,7 @@ const Transferencias = () => {
     <MainLayout>
       <PageHeader 
         title="Transferência Bonificada" 
-        description="Mova pontos internamente entre programas da mesma conta."
+        description="Mova pontos internamente e registre custos adicionais."
       />
 
       <div className="grid gap-6 lg:grid-cols-12 max-w-7xl mx-auto">
@@ -128,7 +193,6 @@ const Transferencias = () => {
             </CardHeader>
             <CardContent className="space-y-6">
               
-              {/* 1. TITULAR */}
               <div className="space-y-2">
                 <Label className="flex items-center gap-2 text-primary font-semibold">
                     <User className="h-4 w-4" />
@@ -148,14 +212,13 @@ const Transferencias = () => {
 
               <div className="border-t border-border/50" />
 
-              {/* 2. ORIGEM E DESTINO */}
               <div className="grid md:grid-cols-2 gap-6">
                   {/* ORIGEM */}
                   <div className="space-y-3">
                     <Label className="text-muted-foreground">Sai de (Origem)</Label>
                     <Select value={sourceProgram} onValueChange={setSourceProgram}>
                         <SelectTrigger className="h-11 border-destructive/50 focus:ring-destructive">
-                        <SelectValue placeholder="Ex: Livelo" />
+                        <SelectValue placeholder="Ex: Esfera" />
                         </SelectTrigger>
                         <SelectContent>
                         {programs?.map(prog => (
@@ -164,7 +227,6 @@ const Transferencias = () => {
                         </SelectContent>
                     </Select>
                     
-                    {/* VISUALIZADOR DE SALDO */}
                     {selectedAccount && sourceProgram && (
                         <div className="flex items-center justify-between text-xs bg-muted/30 p-2 rounded border">
                             <span className="text-muted-foreground">Disponível:</span>
@@ -187,7 +249,7 @@ const Transferencias = () => {
                     <Label className="text-muted-foreground">Entra em (Destino)</Label>
                     <Select value={destProgram} onValueChange={setDestProgram}>
                         <SelectTrigger className="h-11 border-emerald-500/50 focus:ring-emerald-500">
-                        <SelectValue placeholder="Ex: Latam" />
+                        <SelectValue placeholder="Ex: Iberia" />
                         </SelectTrigger>
                         <SelectContent>
                         {programs?.map(prog => (
@@ -200,20 +262,18 @@ const Transferencias = () => {
             </CardContent>
           </Card>
 
-          {/* VALORES */}
+          {/* VALORES E CUSTOS */}
           <Card>
             <CardHeader className="pb-4">
               <CardTitle className="text-lg flex items-center gap-2">
                 <Calculator className="h-5 w-5 text-primary" />
-                Definir Valores
+                Valores e Custos
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid md:grid-cols-2 gap-6">
-                
-                {/* QUANTIDADE */}
                 <div className="space-y-2">
-                  <Label>Quantidade de Pontos</Label>
+                  <Label>Quantidade a Transferir</Label>
                   <div className="relative">
                     <Input 
                         type="number" 
@@ -224,12 +284,8 @@ const Transferencias = () => {
                     />
                     <div className="absolute right-3 top-3 text-xs font-bold text-muted-foreground px-2 py-0.5 rounded bg-muted">PTS</div>
                   </div>
-                  {!calculation.hasBalance && (
-                      <p className="text-xs text-destructive font-medium">Saldo insuficiente</p>
-                  )}
                 </div>
                 
-                {/* BÔNUS */}
                 <div className="space-y-2">
                   <Label>Bônus da Promoção (%)</Label>
                   <div className="relative">
@@ -245,18 +301,96 @@ const Transferencias = () => {
                 </div>
               </div>
 
-              <div className="space-y-2 pt-2">
-                <Label>Data da Operação</Label>
-                <div className="relative max-w-[240px]">
-                  <CalendarIcon className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <div className="grid md:grid-cols-2 gap-6 pt-2">
+                <div className="space-y-2">
+                  <Label>Data da Operação</Label>
+                  <div className="relative max-w-[240px]">
+                    <CalendarIcon className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                    <Input 
+                      type="date" 
+                      className="pl-9 h-11"
+                      value={date}
+                      onChange={e => setDate(e.target.value)}
+                    />
+                  </div>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label>Custo da Operação (R$)</Label>
                   <Input 
-                    type="date" 
-                    className="pl-9 h-11"
-                    value={date}
-                    onChange={e => setDate(e.target.value)}
+                      type="text" 
+                      placeholder="Ex: 1154,75 (Compra de pontos)" 
+                      className="h-11"
+                      value={costAmount}
+                      onChange={e => setCostAmount(e.target.value)}
                   />
+                  <p className="text-xs text-muted-foreground">Teve custo extra? Preencha para gerar Contas a Pagar.</p>
                 </div>
               </div>
+
+              {/* LÓGICA DE PAGAMENTO APARECE SE HOUVER CUSTO */}
+              {calculation.cost > 0 && (
+                <div className="space-y-4 pt-4 border-t">
+                    <div className="flex items-center justify-between">
+                        <Label className="flex items-center gap-2">
+                            <CreditCard className="h-4 w-4" />
+                            Usou Cartão de Crédito?
+                        </Label>
+                        <Switch checked={useCreditCard} onCheckedChange={setUseCreditCard} />
+                    </div>
+
+                    {useCreditCard ? (
+                        <div className="space-y-4 p-4 border rounded-lg bg-muted/20">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label>Cartão Utilizado</Label>
+                                    <Select value={selectedCardId} onValueChange={setSelectedCardId}>
+                                        <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                                        <SelectContent>{creditCards?.map(card => (<SelectItem key={card.id} value={card.id}>{card.name}</SelectItem>))}</SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Parcelas</Label>
+                                    <Select value={installmentCount} onValueChange={setInstallmentCount}>
+                                        <SelectTrigger><SelectValue /></SelectTrigger>
+                                        <SelectContent>{Array.from({ length: 12 }, (_, i) => i + 1).map(n => (<SelectItem key={n} value={n.toString()}>{n}x</SelectItem>))}</SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="space-y-4 p-4 border rounded-lg bg-muted/10">
+                            <div className="space-y-2">
+                                <Label className="flex items-center justify-between">
+                                    Data de Pagamento (Dinheiro/Pix)
+                                    <Button type="button" variant="ghost" size="sm" className="h-6 text-xs text-primary" onClick={() => setManualDueDate(getTodayString())}>
+                                        <CalendarCheck className="w-3 h-3 mr-1"/> Hoje
+                                    </Button>
+                                </Label>
+                                <Input type="date" value={manualDueDate} onChange={e => setManualDueDate(e.target.value)} />
+                            </div>
+                        </div>
+                    )}
+
+                    {installmentPreview.length > 0 && (
+                        <div className="pt-2">
+                            <div className="flex items-center gap-2 mb-3">
+                                <Calendar className="h-4 w-4 text-muted-foreground" />
+                                <span className="text-sm font-medium">Previsão de Pagamentos (A Pagar)</span>
+                            </div>
+                            <div className="space-y-2 max-h-32 overflow-y-auto border rounded p-2 bg-background">
+                                {installmentPreview.map(inst => (
+                                    <div key={inst.installmentNumber} className="flex justify-between items-center text-xs p-1">
+                                        <span className="text-muted-foreground">{inst.installmentNumber}ª parc - {format(inst.dueDate, 'dd/MM/yy')}</span>
+                                        <span className="font-medium text-destructive">{formatCurrency(inst.amount)}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+              )}
+
             </CardContent>
           </Card>
         </div>
@@ -267,12 +401,11 @@ const Transferencias = () => {
                 <CardHeader className="bg-muted/10 border-b pb-4">
                     <CardTitle className="flex items-center gap-2 text-primary">
                         <Wallet className="h-5 w-5" />
-                        Resumo
+                        Resumo da Operação
                     </CardTitle>
                 </CardHeader>
                 
                 <CardContent className="flex-1 space-y-6 pt-6">
-                    {/* CAMINHO */}
                     <div className="space-y-4">
                         <div className="flex justify-between items-center text-sm">
                             <span className="text-muted-foreground">Titular:</span>
@@ -300,7 +433,6 @@ const Transferencias = () => {
 
                     <div className="border-t border-dashed" />
 
-                    {/* MATEMÁTICA */}
                     <div className="space-y-3">
                         <div className="flex justify-between items-center">
                             <span className="text-sm text-muted-foreground">Pontos Base</span>
@@ -311,6 +443,13 @@ const Transferencias = () => {
                             <span className="text-sm text-muted-foreground">Bônus ({calculation.bonus}%)</span>
                             <span className="font-medium text-emerald-500">+ {calculation.bonusAmount.toLocaleString('pt-BR')}</span>
                         </div>
+
+                        {calculation.cost > 0 && (
+                            <div className="flex justify-between items-center bg-destructive/10 p-2 rounded text-destructive">
+                                <span className="text-sm font-semibold">Custo Adicional</span>
+                                <span className="font-bold">- {formatCurrency(calculation.cost)}</span>
+                            </div>
+                        )}
 
                         <div className="bg-primary/5 p-4 rounded-lg border border-primary/20 mt-4">
                             <div className="text-xs text-primary/70 uppercase tracking-wide mb-1 text-center font-bold">Total a Receber</div>
@@ -330,7 +469,7 @@ const Transferencias = () => {
                         onClick={handleTransfer}
                         disabled={isSubmitting}
                     >
-                        {isSubmitting ? 'Processando...' : 'Confirmar'}
+                        {isSubmitting ? 'Processando...' : 'Confirmar Operação'}
                     </Button>
                 </div>
             </Card>
