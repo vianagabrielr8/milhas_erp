@@ -23,8 +23,17 @@ import {
     useDeleteProgram 
 } from '@/hooks/useSupabaseData';
 
+// Função para gerar o slug automaticamente (ex: "TAP Miles&Go" -> "tap-miles-go")
+const generateSlug = (text: string) => {
+    return text.toString().toLowerCase()
+        .replace(/\s+/g, '-')           // Troca espaços por hífen
+        .replace(/[^\w\-]+/g, '')       // Remove caracteres especiais
+        .replace(/\-\-+/g, '-')         // Evita múltiplos hífens seguidos
+        .replace(/^-+/, '')             // Remove hífen do início
+        .replace(/-+$/, '');            // Remove hífen do final
+};
+
 const Programas = () => {
-  // Puxa os dados e as funções reais do banco
   const { data: programas = [], isLoading } = usePrograms();
   const createProgramMutation = useCreateProgram();
   const updateProgramMutation = useUpdateProgram();
@@ -50,9 +59,10 @@ const Programas = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // O Supabase espera { name: ..., cpf_limit: ..., active: ...}
+    // Agora enviamos o slug também para não dar erro de "not-null" no banco
     const dataToSave = {
         name: formData.nome, 
+        slug: generateSlug(formData.nome),
         cpf_limit: formData.cpf_limit,
         active: formData.ativo,
     }
@@ -83,7 +93,7 @@ const Programas = () => {
     setFormData({
       nome: programa.name || '', 
       cpf_limit: programa.cpf_limit,
-      ativo: programa.active !== false, // Garante que se for null venha true
+      ativo: programa.active !== false, 
     });
     setIsOpen(true);
   };
