@@ -61,7 +61,6 @@ import {
 import { Database } from '@/integrations/supabase/types';
 
 // --- UTILITÁRIO 1: PEGAR DATA DE HOJE SEM ERRO DE FUSO ---
-// Retorna string "YYYY-MM-DD" baseada no horário local do navegador
 const getTodayString = () => {
   const d = new Date();
   const year = d.getFullYear();
@@ -71,23 +70,23 @@ const getTodayString = () => {
 };
 
 // --- UTILITÁRIO 2: CRIAR DATA SEGURA PARA CÁLCULOS ---
-// Adiciona T12:00:00 para garantir que o fuso horário não jogue pro dia anterior
 const createSafeDate = (dateString: string) => {
     if (!dateString) return new Date();
     return new Date(`${dateString}T12:00:00`);
 };
 
-type TransactionType =
-  Database['public']['Enums']['transaction_type'];
+type TransactionType = Database['public']['Enums']['transaction_type'];
 
 interface TransactionModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSuccessCallback?: (transactionId: string, totalCost: number) => void; // NOVO: Retorno para a Transferência
 }
 
 export function TransactionModal({
   open,
   onOpenChange,
+  onSuccessCallback
 }: TransactionModalProps) {
   const { vendas, programas, contas, passageiros, isLoading } = useData();
   const vendasSafe = vendas ?? []; 
@@ -114,9 +113,13 @@ export function TransactionModal({
 
   const [transactionType, setTransactionType] = useState<TransactionType>('COMPRA');
   const [quantity, setQuantity] = useState('');
-  const [pricePerThousand, setPricePerThousand] = useState('');
   
-  // --- DATAS (Inicializa como string simples) ---
+  // NOVO UX DE PREÇO: Milheiro vs Bruto
+  const [inputMode, setInputMode] = useState<'MILHEIRO' | 'TOTAL'>('MILHEIRO');
+  const [unitPrice, setUnitPrice] = useState('');
+  const [totalPrice, setTotalPrice] = useState('');
+  
+  // Datas
   const [transactionDate, setTransactionDate] = useState(getTodayString());
   const [expirationDate, setExpirationDate] = useState('');
   const [notes, setNotes] = useState('');
@@ -126,11 +129,13 @@ export function TransactionModal({
   const [taxType, setTaxType] = useState<'MONEY' | 'MILES'>('MONEY');
   const [taxAmount, setTaxAmount] = useState(''); 
 
+  // Pagamento (Cartão)
   const [useCreditCard, setUseCreditCard] = useState(false);
   const [selectedCardId, setSelectedCardId] = useState('');
   const [installmentCount, setInstallmentCount] = useState('1');
   const [manualDueDate, setManualDueDate] = useState(getTodayString());
 
+  // Recebimento (Parcelado)
   const [useInstallments, setUseInstallments] = useState(false);
   const [saleInstallments, setSaleInstallments] = useState('1');
   const [firstReceiveDate, setFirstReceiveDate] = useState(getTodayString());
@@ -150,7 +155,9 @@ export function TransactionModal({
       setSearchPassageiro('');
       setTransactionType('COMPRA');
       setQuantity('');
-      setPricePerThousand('');
+      setInputMode('MILHEIRO');
+      setUnitPrice('');
+      setTotalPrice('');
       setTransactionDate(hoje);
       setManualDueDate(hoje);
       setExpirationDate('');
@@ -167,6 +174,25 @@ export function TransactionModal({
     }
   }, [open]);
 
+  // Alternar entre Milheiro e Total
+  const handleModeSwitch = (mode: 'MILHEIRO' | 'TOTAL') => {
+      if (mode === inputMode) return;
+      
+      const baseQ = Number(quantity) || 0;
+      if (mode === 'TOTAL') {
+          if (unitPrice && baseQ > 0) {
+              const cost = (baseQ / 1000) * Number(unitPrice.replace(',', '.'));
+              setTotalPrice(cost.toFixed(2));
+          }
+      } else {
+          if (totalPrice && baseQ > 0) {
+              const cpm = Number(totalPrice.replace(',', '.')) / (baseQ / 1000);
+              setUnitPrice(cpm.toFixed(2));
+          }
+      }
+      setInputMode(mode);
+  };
+
   // Lógica Visual Dropdowns
   const showContaList = searchConta && !contas?.some(c => c.name === searchConta);
   const showProgramaList = searchPrograma && !programas?.some(p => p.name === searchPrograma);
@@ -174,27 +200,38 @@ export function TransactionModal({
 
   const finalValues = useMemo(() => {
     const baseQ = Number(quantity) || 0;
-    const price = Number(pricePerThousand) || 0;
     const taxVal = Number(taxAmount) || 0;
 
+    let finalBaseRevenue = 0;
+    let finalCpm = 0;
+
+    if (inputMode === 'MILHEIRO') {
+        finalCpm = Number(unitPrice.toString().replace(',', '.')) || 0;
+        finalBaseRevenue = (baseQ / 1000) * finalCpm;
+    } else {
+        finalBaseRevenue = Number(totalPrice.toString().replace(',', '.')) || 0;
+        finalCpm = baseQ > 0 ? (finalBaseRevenue / (baseQ / 1000)) : 0;
+    }
+
     let finalQty = baseQ;
-    let finalRevenue = (baseQ / 1000) * price;
+    let finalRevenue = finalBaseRevenue;
 
     if (hasTax && taxVal > 0) {
         if (taxType === 'MONEY') {
             finalRevenue += taxVal;
         } else {
             finalQty += taxVal;
-            finalRevenue = (finalQty / 1000) * price;
+            finalRevenue = (finalQty / 1000) * finalCpm;
         }
     }
 
     return { 
         qty: finalQty, 
         revenue: finalRevenue,
-        baseRevenue: (baseQ / 1000) * price 
+        baseRevenue: finalBaseRevenue,
+        cpm: finalCpm
     };
-  }, [quantity, pricePerThousand, hasTax, taxType, taxAmount]);
+  }, [quantity, unitPrice, totalPrice, inputMode, hasTax, taxType, taxAmount]);
 
   const calculatedTotal = finalValues.revenue;
 
@@ -203,17 +240,10 @@ export function TransactionModal({
     if (useCreditCard && selectedCardId) {
       const card = creditCards?.find(c => c.id === selectedCardId);
       if (card) {
-        return calculateCardDates(
-          createSafeDate(transactionDate), // AQUI: Força meio-dia
-          card.closing_day,
-          card.due_day,
-        );
+        return calculateCardDates(createSafeDate(transactionDate), card.closing_day, card.due_day);
       }
     }
-    // Pagamento manual
-    return manualDueDate 
-      ? createSafeDate(manualDueDate) // AQUI: Força meio-dia
-      : createSafeDate(transactionDate);
+    return manualDueDate ? createSafeDate(manualDueDate) : createSafeDate(transactionDate);
   }, [useCreditCard, selectedCardId, transactionDate, manualDueDate, creditCards]);
 
   const installmentPreview = useMemo(() => {
@@ -232,7 +262,7 @@ export function TransactionModal({
     return calculateSaleProfit(finalValues.revenue, finalValues.qty, avgCpm / 1000);
   }, [finalValues, avgCpm]);
 
-  const purchaseCpm = useMemo(() => Number(pricePerThousand), [pricePerThousand]);
+  const purchaseCpm = useMemo(() => finalValues.cpm, [finalValues.cpm]);
 
   const cpfAlert = useMemo(() => {
     if (transactionType !== 'VENDA' || !programId || !accountId || !clientId) return null;
@@ -251,7 +281,9 @@ export function TransactionModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!accountId || !programId || !quantity || !pricePerThousand || (transactionType === 'VENDA' && !clientId)) {
+    const priceToValidate = inputMode === 'MILHEIRO' ? unitPrice : totalPrice;
+
+    if (!accountId || !programId || !quantity || !priceToValidate || (transactionType === 'VENDA' && !clientId)) {
       toast.error('Preencha os campos obrigatórios');
       return;
     }
@@ -273,10 +305,6 @@ export function TransactionModal({
           finalNotes = notes ? `${notes} | ${taxInfo}` : taxInfo;
       }
 
-      // --- O PULO DO GATO NO ENVIO ---
-      // Enviamos a string PURA (ex: "2026-01-23"). 
-      // Não convertemos para Date() antes de enviar.
-      // O Supabase recebe string no campo Date e grava exatamente o que recebeu.
       const safeTransactionDate = transactionDate; 
       const safeExpirationDate = expirationDate || null;
 
@@ -297,8 +325,8 @@ export function TransactionModal({
           transactionType === 'VENDA'
             ? revenue
             : null,
-        transaction_date: safeTransactionDate, // ENVIA STRING PURA
-        expiration_date: safeExpirationDate,   // ENVIA STRING PURA
+        transaction_date: safeTransactionDate, 
+        expiration_date: safeExpirationDate,   
         notes: finalNotes || null,
         supplier_id: supplierId || null,
         client_id: clientId || null,
@@ -321,7 +349,6 @@ export function TransactionModal({
             payable_id: payable.id,
             installment_number: i.installmentNumber,
             amount: i.amount,
-            // Formatamos a data calculada (que já foi protegida com T12:00:00) de volta para string YYYY-MM-DD
             due_date: format(i.dueDate, 'yyyy-MM-dd'),
             status: 'pendente',
             user_id: user.id,
@@ -343,7 +370,6 @@ export function TransactionModal({
                 user_id: user.id,
             });
 
-            // Gera parcelas usando data segura (Meio-dia)
             const safeReceivingDate = createSafeDate(firstReceiveDate);
 
             await createReceivableInstallments.mutateAsync(
@@ -358,8 +384,14 @@ export function TransactionModal({
             );
         }
 
-      toast.success('Transação registrada');
-      onOpenChange(false);
+      // NOVO: Retorna a execução para quem chamou (Ex: a tela de Transferência)
+      if (onSuccessCallback) {
+          onSuccessCallback(transaction.id, revenue);
+      } else {
+          toast.success('Transação registrada');
+          onOpenChange(false);
+      }
+      
     } catch (err: any) {
       toast.error(err.message || 'Erro');
     } finally {
@@ -395,78 +427,35 @@ export function TransactionModal({
 
           {/* --- BLOCO CONTA E PROGRAMA (LIMPO) --- */}
           <div className="grid grid-cols-2 gap-4">
-            {/* CONTA */}
             <div className="relative">
               <Label htmlFor="searchConta">Conta *</Label>
-              <Input
-                id="searchConta"
-                value={searchConta}
-                onChange={e => setSearchConta(e.target.value)}
-                placeholder="Buscar Conta"
-                className="mt-1"
-                autoComplete="off"
-              />
-              {/* SÓ MOSTRA SE TIVER TEXTO E NÃO FOR IGUAL AO SELECIONADO */}
+              <Input id="searchConta" value={searchConta} onChange={e => setSearchConta(e.target.value)} placeholder="Buscar Conta" className="mt-1" autoComplete="off" />
               {showContaList && (
                 <div className="absolute z-50 w-full mt-1 bg-popover text-popover-foreground rounded-md border shadow-md max-h-[200px] overflow-y-auto">
-                  {(contas ?? [])
-                    .filter(c => c.name.toLowerCase().includes(searchConta.toLowerCase()))
-                    .map(c => (
-                      <div
-                        key={c.id}
-                        className="px-2 py-1.5 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground"
-                        onClick={() => {
-                          setAccountId(c.id);
-                          setSearchConta(c.name);
-                        }}
-                      >
+                  {(contas ?? []).filter(c => c.name.toLowerCase().includes(searchConta.toLowerCase())).map(c => (
+                      <div key={c.id} className="px-2 py-1.5 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground" onClick={() => { setAccountId(c.id); setSearchConta(c.name); }}>
                         {c.name}
-                    </div>
+                      </div>
                   ))}
-                  {contas?.filter(c => c.name.toLowerCase().includes(searchConta.toLowerCase())).length === 0 && (
-                      <div className="px-2 py-1.5 text-sm text-muted-foreground">Nenhuma conta encontrada</div>
-                  )}
               </div>
             )}
           </div>
 
-            {/* PROGRAMA */}
             <div className="relative">
               <Label htmlFor="searchPrograma">Programa *</Label>
-              <Input
-                id="searchPrograma"
-                value={searchPrograma}
-                onChange={e => setSearchPrograma(e.target.value)}
-                placeholder="Buscar Programa"
-                className="mt-1"
-                autoComplete="off"
-              />
-              {/* SÓ MOSTRA SE TIVER TEXTO E NÃO FOR IGUAL AO SELECIONADO */}
+              <Input id="searchPrograma" value={searchPrograma} onChange={e => setSearchPrograma(e.target.value)} placeholder="Buscar Programa" className="mt-1" autoComplete="off" />
               {showProgramaList && (
                 <div className="absolute z-50 w-full mt-1 bg-popover text-popover-foreground rounded-md border shadow-md max-h-[200px] overflow-y-auto">
-                  {(programas ?? [])
-                    .filter(p => p.name.toLowerCase().includes(searchPrograma.toLowerCase()))
-                    .map(p => (
-                      <div
-                        key={p.id}
-                        className="px-2 py-1.5 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground"
-                        onClick={() => {
-                          setProgramId(p.id);
-                          setSearchPrograma(p.name);
-                        }}
-                      >
+                  {(programas ?? []).filter(p => p.name.toLowerCase().includes(searchPrograma.toLowerCase())).map(p => (
+                      <div key={p.id} className="px-2 py-1.5 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground" onClick={() => { setProgramId(p.id); setSearchPrograma(p.name); }}>
                         {p.name}
-                    </div>
+                      </div>
                   ))}
-                  {programas?.filter(p => p.name.toLowerCase().includes(searchPrograma.toLowerCase())).length === 0 && (
-                      <div className="px-2 py-1.5 text-sm text-muted-foreground">Nenhum programa encontrado</div>
-                  )}
               </div>
             )}
             </div>
           </div>
 
-            {/* TIPO DE TRANSAÇÃO */}
             <div className="space-y-2">
                 <Label>Tipo de Transação *</Label>
                 <Select value={transactionType} onValueChange={(v) => setTransactionType(v as TransactionType)}>
@@ -485,18 +474,44 @@ export function TransactionModal({
 
           <Separator />
             
-            {/* QUANTIDADE E VALOR UNITÁRIO */}
+            {/* QUANTIDADE E VALOR UNITÁRIO (ATUALIZADO) */}
             <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                     <Label>Quantidade de Milhas (Base) *</Label>
                     <Input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} placeholder="Ex: 50000" min="1" required />
                 </div>
+                
+                {/* O PULO DO GATO: Interruptor de Preço */}
                 <div className="space-y-2">
-                    <Label>{transactionType === 'VENDA' ? 'Valor Unitário (R$/1000) *' : 'Valor Compra (Milheiro) *'}</Label>
+                    <div className="flex items-center justify-between mb-1">
+                        <Label>{transactionType === 'VENDA' ? 'Valor da Venda *' : 'Valor da Compra *'}</Label>
+                        <div className="flex bg-muted/50 rounded-md p-0.5 border border-border/50">
+                            <button 
+                                type="button" 
+                                onClick={() => handleModeSwitch('MILHEIRO')} 
+                                className={`text-[10px] px-2 py-1 rounded transition-colors ${inputMode === 'MILHEIRO' ? 'bg-background shadow-sm font-bold text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                            >
+                                Milheiro
+                            </button>
+                            <button 
+                                type="button" 
+                                onClick={() => handleModeSwitch('TOTAL')} 
+                                className={`text-[10px] px-2 py-1 rounded transition-colors ${inputMode === 'TOTAL' ? 'bg-background shadow-sm font-bold text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                            >
+                                Total (Bruto)
+                            </button>
+                        </div>
+                    </div>
+                    
                     <div className="space-y-1">
-                        <Input type="number" step="0.000001" value={pricePerThousand} onChange={e => setPricePerThousand(e.target.value)} placeholder="Ex: 20.50" min="0" required />
-                        <div className="text-right text-sm font-medium text-muted-foreground">
-                            Subtotal: {formatCurrency(finalValues.baseRevenue)}
+                        {inputMode === 'MILHEIRO' ? (
+                            <Input type="number" step="0.01" value={unitPrice} onChange={e => setUnitPrice(e.target.value)} placeholder="Ex: 20.50 (Preço por milheiro)" min="0" required />
+                        ) : (
+                            <Input type="number" step="0.01" value={totalPrice} onChange={e => setTotalPrice(e.target.value)} placeholder="Ex: 1155.96 (Valor bruto)" min="0" required />
+                        )}
+                        <div className="flex justify-between items-center text-sm font-medium text-muted-foreground pt-1">
+                            <span className="text-primary/70">{inputMode === 'TOTAL' && finalValues.qty > 0 ? `CPM Calc: ${formatCPM(finalValues.cpm)}` : ''}</span>
+                            <span>Subtotal: {formatCurrency(finalValues.baseRevenue)}</span>
                         </div>
                     </div>
                 </div>
@@ -554,7 +569,7 @@ export function TransactionModal({
             )}
 
             {/* PREVIEWS */}
-            {transactionType === 'COMPRA' && purchaseCpm > 0 && (
+            {transactionType === 'COMPRA' && purchaseCpm > 0 && inputMode === 'MILHEIRO' && (
                 <Card className="bg-muted/30">
                     <CardContent className="pt-4">
                         <div className="flex justify-between items-center">
@@ -603,26 +618,11 @@ export function TransactionModal({
             {transactionType === 'VENDA' && (
                 <div className="space-y-2 relative">
                     <Label htmlFor="searchPassageiro">Passageiro *</Label>
-                    <Input
-                        id="searchPassageiro"
-                        value={searchPassageiro}
-                        onChange={e => setSearchPassageiro(e.target.value)}
-                        placeholder="Buscar Passageiro"
-                        autoComplete="off"
-                    />
+                    <Input id="searchPassageiro" value={searchPassageiro} onChange={e => setSearchPassageiro(e.target.value)} placeholder="Buscar Passageiro" autoComplete="off" />
                     {showPassageiroList && (
                         <div className="absolute z-50 w-full mt-1 bg-popover text-popover-foreground rounded-md border shadow-md max-h-[200px] overflow-y-auto">
-                            {(passageiros ?? [])
-                                .filter(p => p.name.toLowerCase().includes(searchPassageiro.toLowerCase()))
-                                .map(p => (
-                                    <div
-                                        key={p.id}
-                                        className="px-2 py-1.5 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground"
-                                        onClick={() => {
-                                            setClientId(p.id);
-                                            setSearchPassageiro(p.name);
-                                        }}
-                                    >
+                            {(passageiros ?? []).filter(p => p.name.toLowerCase().includes(searchPassageiro.toLowerCase())).map(p => (
+                                    <div key={p.id} className="px-2 py-1.5 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground" onClick={() => { setClientId(p.id); setSearchPassageiro(p.name); }}>
                                         {p.name}
                                     </div>
                                 ))}
@@ -669,15 +669,8 @@ export function TransactionModal({
                             <div className="space-y-2">
                                 <Label className="flex items-center justify-between">
                                     Data do Pagamento (Vencimento)
-                                    <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-6 text-xs text-primary"
-                                        onClick={() => setManualDueDate(getTodayString())}
-                                    >
-                                        <CalendarCheck className="w-3 h-3 mr-1"/>
-                                        Pagar Hoje
+                                    <Button type="button" variant="ghost" size="sm" className="h-6 text-xs text-primary" onClick={() => setManualDueDate(getTodayString())}>
+                                        <CalendarCheck className="w-3 h-3 mr-1"/> Pagar Hoje
                                     </Button>
                                 </Label>
                                 <Input type="date" value={manualDueDate} onChange={e => setManualDueDate(e.target.value)} />
