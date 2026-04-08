@@ -44,6 +44,7 @@ export const useExpiringMiles = () => useQuery({ queryKey: ['expiring_miles'], q
 export const useSales = () => useQuery({ queryKey: ['sales'], queryFn: async () => (await supabase.from('transactions').select('*').eq('type', 'VENDA').order('transaction_date', { ascending: false })).data || [] });
 export const useReceivableInstallments = () => useQuery({ queryKey: ['receivable_installments'], queryFn: async () => (await supabase.from('receivable_installments').select(`*, receivables (description, total_amount)`).order('due_date')).data || [] });
 
+// CORREÇÃO PARA O "CONTAS A PAGAR" (Busca 'installments')
 export const usePayableInstallments = () => useQuery({ 
     queryKey: ['payable_installments'], 
     queryFn: async () => (await supabase
@@ -55,7 +56,7 @@ export const usePayableInstallments = () => useQuery({
 
 /* --- ESCRITA --- */
 
-// 1. CRIAR VENDA
+// 1. CRIAR VENDA (Com Lógica de Taxa Separada)
 export const useCreateSale = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -65,7 +66,7 @@ export const useCreateSale = () => {
       const qtdMilhas = Math.abs(parseCurrency(newSale.quantidade)); 
       const quantidadeNegativa = -1 * qtdMilhas;
 
-      // Cálculo do CPM
+      // 1. Cálculo do CPM (Custo)
       const { data: historico } = await supabase
         .from('transactions')
         .select('quantity, total_cost')
@@ -93,6 +94,7 @@ export const useCreateSale = () => {
           custoDoEstoque = (qtdMilhas / 1000) * cpmAtual;
       }
 
+      // 2. Criar Transação de Venda (Estoque)
       const { data: transaction, error: transError } = await supabase.from('transactions')
         .insert({
             user_id: user?.id,
@@ -108,11 +110,13 @@ export const useCreateSale = () => {
 
       if (transError) throw transError;
 
+      // 3. Registrar Passageiros
       if (newSale.passageiros?.length > 0) {
           const passData = newSale.passageiros.map((p:any) => ({ user_id: user?.id, transaction_id: transaction.id, name: p.nome, cpf: p.cpf }));
           await supabase.from('passengers').insert(passData);
       }
 
+      // 4. Financeiro: Contas a Receber (VENDA)
       if (valorReceitaTotal > 0) {
         const { data: receivable, error: recError } = await supabase.from('receivables')
           .insert({
@@ -128,8 +132,8 @@ export const useCreateSale = () => {
             const valorParcela = valorReceitaTotal / numParcelas;
             const installments = [];
             for (let i = 0; i < numParcelas; i++) {
-                const dataBase = new Date(newSale.dataRecebimento + 'T12:00:00');
-                const dataVencimento = new Date(dataBase.valueOf());
+                const dataBase = new Date(newSale.dataRecebimento);
+                const dataVencimento = new Date(dataBase.valueOf() + dataBase.getTimezoneOffset() * 60000);
                 if (i > 0) dataVencimento.setMonth(dataVencimento.getMonth() + i);
                 installments.push({ user_id: user?.id, receivable_id: receivable.id, installment_number: i + 1, amount: valorParcela, due_date: dataVencimento.toISOString().split('T')[0], status: 'PENDENTE' });
             }
@@ -137,13 +141,15 @@ export const useCreateSale = () => {
         }
       }
 
+      // 5. --- LÓGICA DE TAXA EM DINHEIRO (SEPARADA) ---
       const taxDetails = newSale.taxDetails;
       if (taxDetails && taxDetails.hasTax && taxDetails.type === 'MONEY') {
           const taxVal = parseCurrency(taxDetails.amount);
           
+          // A. Contas a Pagar (Custo da Taxa no Cartão)
           const { data: payable } = await supabase.from('payables').insert({
               user_id: user?.id,
-              transaction_id: transaction.id,
+              transaction_id: transaction.id, // Vincula à venda para rastreio
               credit_card_id: taxDetails.cardId,
               description: `Pgto Taxa Embarque - Venda #${transaction.id.slice(0, 8)}`,
               total_amount: taxVal,
@@ -156,11 +162,12 @@ export const useCreateSale = () => {
                   payable_id: payable.id,
                   installment_number: 1,
                   amount: taxVal,
-                  due_date: taxDetails.cardDueDate,
+                  due_date: taxDetails.cardDueDate, // Data calculada no frontend
                   status: 'PENDENTE'
               });
           }
 
+          // B. Contas a Receber (Reembolso da Taxa)
           const { data: taxRec } = await supabase.from('receivables').insert({
               user_id: user?.id,
               transaction_id: transaction.id,
@@ -175,7 +182,7 @@ export const useCreateSale = () => {
                   receivable_id: taxRec.id,
                   installment_number: 1,
                   amount: taxVal,
-                  due_date: newSale.dataRecebimento,
+                  due_date: newSale.dataRecebimento, // Recebe junto com a venda
                   status: 'PENDENTE'
               });
           }
@@ -366,5 +373,40 @@ export const useDeleteCreditCard = () => {
             await supabase.from('credit_cards').delete().eq('id', id); 
         }, 
         onSuccess: () => qc.invalidateQueries({ queryKey: ['credit_cards'] }) 
+    })
+};
+
+// --- PROGRAMAS DE MILHAS ---
+export const useCreateProgram = () => { 
+    const qc = useQueryClient(); 
+    return useMutation({ 
+        mutationFn: async (p: any) => { 
+            const { data: { user } } = await supabase.auth.getUser();
+            const { error } = await supabase.from('programs').insert({...p, user_id: user?.id}); 
+            if (error) throw error;
+        }, 
+        onSuccess: () => qc.invalidateQueries({ queryKey: ['programs'] }) 
+    })
+};
+
+export const useUpdateProgram = () => { 
+    const qc = useQueryClient(); 
+    return useMutation({ 
+        mutationFn: async ({id, ...p}: any) => { 
+            const { error } = await supabase.from('programs').update(p).eq('id', id); 
+            if (error) throw error;
+        }, 
+        onSuccess: () => qc.invalidateQueries({ queryKey: ['programs'] }) 
+    })
+};
+
+export const useDeleteProgram = () => { 
+    const qc = useQueryClient(); 
+    return useMutation({ 
+        mutationFn: async (id: string) => { 
+            const { error } = await supabase.from('programs').delete().eq('id', id); 
+            if (error) throw error;
+        }, 
+        onSuccess: () => qc.invalidateQueries({ queryKey: ['programs'] }) 
     })
 };
