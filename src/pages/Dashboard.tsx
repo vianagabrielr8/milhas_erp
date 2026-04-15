@@ -6,15 +6,17 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
   Plane,
-  TrendingUp,
   TrendingDown,
   CreditCard,
-  Receipt,
   Wallet,
   Filter,
   ShieldCheck,
   BarChart3,
-  ArrowUpRight
+  ArrowUpRight,
+  Banknote,
+  Target,
+  Percent,
+  TrendingUp
 } from 'lucide-react';
 import { 
   Select, 
@@ -28,14 +30,15 @@ import {
   usePayableInstallments, 
   useReceivableInstallments,
   useTransactions,
-  useAccounts
+  useAccounts,
+  useSales
 } from '@/hooks/useSupabaseData';
 import { formatCPM } from '@/utils/financeLogic';
-import { format, startOfMonth, addMonths, differenceInMonths } from 'date-fns';
+import { format, addMonths, differenceInMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
-  ResponsiveContainer, PieChart, Pie, Cell, ComposedChart, Line, Area 
+  ResponsiveContainer, Area, ComposedChart 
 } from 'recharts';
 
 const COLORS = ['hsl(var(--primary))', 'hsl(var(--success))', 'hsl(var(--warning))', 'hsl(var(--destructive))', 'hsl(var(--secondary))'];
@@ -57,6 +60,7 @@ const Dashboard = () => {
   const { data: receivableInstallments } = useReceivableInstallments();
   const { data: transactions } = useTransactions();
   const { data: accounts } = useAccounts();
+  const { data: vendasData } = useSales(); // Puxa as VENDAS reais
 
   const [filtroConta, setFiltroConta] = useState("all");
 
@@ -88,28 +92,56 @@ const Dashboard = () => {
     return { totalPayableAllTime: pay, totalReceivableAllTime: rec };
   }, [payableInstallments, receivableInstallments]);
 
-  // Equity (Patrimônio Líquido Real)
   const equity = (marketValue + totalReceivableAllTime) - totalPayableAllTime;
   const coverageIndex = totalPayableAllTime > 0 ? marketValue / totalPayableAllTime : 0;
 
-  // --- 3. LÓGICA DO GRÁFICO DE FLUXO DE CAIXA (A PARTIR DE JAN/2026 ATÉ +4 MESES) ---
+  // --- 3. LÓGICA DE PERFORMANCE DE VENDAS (LUCRO REAL) ---
+  const { receitaTotal, custoVendas, lucroOperacional, cpmVendido, cpmCustoVenda, margemLucro, spread } = useMemo(() => {
+    if (!vendasData) return { receitaTotal: 0, custoVendas: 0, lucroOperacional: 0, cpmVendido: 0, cpmCustoVenda: 0, margemLucro: 0, spread: 0 };
+
+    const vendasFiltradas = filtroConta === "all" ? vendasData : vendasData.filter(v => v.account_id === filtroConta);
+
+    let receita = 0;
+    let custo = 0;
+    let milhas = 0;
+
+    vendasFiltradas.forEach(v => {
+        // Pega a receita do Contas a Receber (Venda + Taxa) ou usa o preço base da venda
+        const receitaVenda = v.receivables?.[0]?.total_amount || v.sale_price || 0;
+        receita += Number(receitaVenda);
+        custo += Number(v.total_cost || 0); // O custo base (Estoque) daquelas milhas
+        milhas += Math.abs(Number(v.quantity || 0));
+    });
+
+    const lucro = receita - custo;
+    const margem = receita > 0 ? (lucro / receita) * 100 : 0;
+    const cpmVenda = milhas > 0 ? (receita / (milhas / 1000)) : 0;
+    const cpmCusto = milhas > 0 ? (custo / (milhas / 1000)) : 0;
+    const calculoSpread = cpmVenda - cpmCusto;
+
+    return { 
+        receitaTotal: receita, 
+        custoVendas: custo, 
+        lucroOperacional: lucro, 
+        cpmVendido: cpmVenda, 
+        cpmCustoVenda: cpmCusto, 
+        margemLucro: margem,
+        spread: calculoSpread
+    };
+  }, [vendasData, filtroConta]);
+
+  // --- 4. LÓGICA DO GRÁFICO DE FLUXO DE CAIXA ---
   const cashFlowData = useMemo(() => {
     const months = [];
     const currentDate = new Date();
     
-    // Data de início fixa: 01 de Janeiro de 2026
-    const startDate = new Date(2026, 0, 1); // Ano 2026, Mês 0 (Jan), Dia 1
-    
-    // Calcular a diferença em meses entre a data atual e Janeiro de 2026
-    // Retorna negativo porque startDate é no passado em relação a currentDate
+    const startDate = new Date(2026, 0, 1);
     const diffMonths = differenceInMonths(startDate, currentDate);
 
-    // O loop começa na diferença de meses (ex: -2 se hoje for Março) 
-    // e vai até 4 meses para frente da data atual
     for (let i = diffMonths; i <= 4; i++) {
       const date = addMonths(currentDate, i);
       months.push({
-        label: format(date, 'MMM/yy', { locale: ptBR }), // Ex: jan/26
+        label: format(date, 'MMM/yy', { locale: ptBR }), 
         key: format(date, 'yyyy-MM'),
         entradas: 0,
         saidas: 0,
@@ -117,21 +149,18 @@ const Dashboard = () => {
       });
     }
 
-    // Processar Saídas (Contas a Pagar)
     payableInstallments?.forEach(i => {
       const monthKey = i.due_date.substring(0, 7);
       const month = months.find(m => m.key === monthKey);
       if (month) month.saidas += Number(i.amount);
     });
 
-    // Processar Entradas (Contas a Receber)
     receivableInstallments?.forEach(i => {
       const monthKey = i.due_date.substring(0, 7);
       const month = months.find(m => m.key === monthKey);
       if (month) month.entradas += Number(i.amount);
     });
 
-    // Calcular Saldo Projetado
     let accum = 0;
     return months.map(m => {
       accum += (m.entradas - m.saidas);
@@ -139,7 +168,7 @@ const Dashboard = () => {
     });
   }, [payableInstallments, receivableInstallments]);
 
-  // --- 4. CPM POR PROGRAMA ---
+  // --- 5. CPM POR PROGRAMA ---
   const cpmByProgram = useMemo(() => {
     const agrupado: any[] = [];
     const base = filtroConta === "all" ? milesBalance : milesBalance?.filter(m => m.account_id === filtroConta);
@@ -172,7 +201,7 @@ const Dashboard = () => {
 
   return (
     <MainLayout>
-      <PageHeader title="Dashboard Estratégico" description="Visão de patrimônio e fluxo de caixa" />
+      <PageHeader title="Dashboard Estratégico" description="Visão de patrimônio, fluxo de caixa e resultados operacionais" />
 
       {/* Filtros */}
       <div className="flex gap-4 mb-6 bg-muted/20 p-4 rounded-lg border border-border/50 items-center">
@@ -186,7 +215,7 @@ const Dashboard = () => {
         </Select>
       </div>
 
-      {/* KPIs Estratégicos */}
+      {/* BLOCO 1: CAIXA E MERCADO (SUA PRIMEIRA LINHA ORIGINAL) */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
         <StatCard
           title="Patrimônio Líquido (Equity)"
@@ -218,7 +247,46 @@ const Dashboard = () => {
         />
       </div>
 
-      {/* Segunda Linha de Stats (CPMs e Operacional) */}
+      {/* BLOCO 2: RESULTADOS DE VENDAS (A MÁGICA NOVA!) */}
+      <div className="mb-3 mt-8">
+          <h2 className="text-lg font-bold flex items-center gap-2"><Target className="h-5 w-5 text-emerald-500"/> Performance de Vendas</h2>
+          <p className="text-sm text-muted-foreground">Resultados operacionais baseados no Custo (Estoque) vs Receita (A Receber).</p>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
+        <StatCard 
+          title="Receita Bruta" 
+          value={formatCurrency(receitaTotal)} 
+          subtitle="Total faturado" 
+          icon={Banknote} 
+          variant="default" 
+        />
+        <StatCard 
+          title="Lucro Bruto" 
+          value={formatCurrency(lucroOperacional)} 
+          subtitle={`Custo Estoque: ${formatCurrency(custoVendas)}`} 
+          icon={TrendingUp} 
+          variant={lucroOperacional >= 0 ? 'success' : 'destructive'} 
+        />
+        <StatCard 
+          title="CPM Médio de Venda" 
+          value={formatCPM(cpmVendido)} 
+          subtitle={`Spread ganho: ${formatCurrency(spread)}`} 
+          icon={ArrowUpRight} 
+          variant="success" 
+        />
+        <StatCard 
+          title="Margem de Lucro" 
+          value={`${margemLucro.toFixed(2)}%`} 
+          subtitle={`CPM Custo: ${formatCPM(cpmCustoVenda)}`} 
+          icon={Percent} 
+          variant={margemLucro >= 0 ? 'success' : 'destructive'} 
+        />
+      </div>
+
+      {/* BLOCO 3: ESTOQUE (SUA SEGUNDA LINHA ORIGINAL) */}
+      <div className="mb-3 mt-8">
+          <h2 className="text-lg font-bold flex items-center gap-2"><Plane className="h-5 w-5 text-secondary"/> Posição de Estoque</h2>
+      </div>
       <div className="grid gap-4 md:grid-cols-3 mb-8">
         <StatCard title="Milhas em Estoque" value={formatNumber(totalMiles)} icon={Plane} />
         <StatCard title="CPM Médio Global" value={formatCPM(avgCpmGlobal)} icon={TrendingDown} variant="destructive" />
@@ -249,7 +317,7 @@ const Dashboard = () => {
           </CardContent>
         </Card>
 
-        {/* Tabela de CPMs (Mantida para negociação rápida) */}
+        {/* Tabela de CPMs */}
         <Card className="lg:col-span-2">
           <CardHeader><CardTitle>Gestão por Programa (Mark-to-Market)</CardTitle></CardHeader>
           <CardContent>
@@ -261,7 +329,7 @@ const Dashboard = () => {
                     <th className="text-right py-3 px-4">Saldo</th>
                     <th className="text-right py-3 px-4">CPM Atual</th>
                     <th className="text-right py-3 px-4">Preço Mercado</th>
-                    <th className="text-right py-3 px-4">Spread</th>
+                    <th className="text-right py-3 px-4">Spread Virtual</th>
                   </tr>
                 </thead>
                 <tbody>
