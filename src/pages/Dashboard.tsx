@@ -5,7 +5,6 @@ import { StatCard } from '@/components/dashboard/StatCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Plane,
@@ -29,6 +28,11 @@ import {
   SelectTrigger, 
   SelectValue 
 } from '@/components/ui/select';
+
+// NOVOS IMPORTS PARA O CALENDÁRIO (UX)
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+
 import { 
   useMilesBalance, 
   usePayableInstallments, 
@@ -65,8 +69,9 @@ const Dashboard = () => {
 
   // --- ESTADOS DOS FILTROS ---
   const [filtroConta, setFiltroConta] = useState("all");
-  const [dataInicio, setDataInicio] = useState("");
-  const [dataFim, setDataFim] = useState("");
+  // Agora os estados de data guardam um objeto Date real (melhor para o Calendário)
+  const [dataInicio, setDataInicio] = useState<Date | undefined>();
+  const [dataFim, setDataFim] = useState<Date | undefined>();
 
   // --- 1. LÓGICA DE PATRIMÔNIO E MERCADO (GLOBAL) ---
   const { totalMiles, totalInvested, marketValue, avgCpmGlobal } = useMemo(() => {
@@ -103,15 +108,17 @@ const Dashboard = () => {
   const { receitaTotal, custoVendas, lucroOperacional, cpmVendido, cpmCustoVenda, margemLucro, spread } = useMemo(() => {
     if (!vendasData) return { receitaTotal: 0, custoVendas: 0, lucroOperacional: 0, cpmVendido: 0, cpmCustoVenda: 0, margemLucro: 0, spread: 0 };
 
-    // Filtra por Conta
     let vendasFiltradas = filtroConta === "all" ? vendasData : vendasData.filter(v => v.account_id === filtroConta);
 
-    // Filtra por Data de Início e Fim
-    if (dataInicio) {
-        vendasFiltradas = vendasFiltradas.filter(v => v.transaction_date >= dataInicio);
+    // Converte as datas selecionadas para o formato YYYY-MM-DD para comparar com o banco
+    const dataInicioStr = dataInicio ? format(dataInicio, 'yyyy-MM-dd') : null;
+    const dataFimStr = dataFim ? format(dataFim, 'yyyy-MM-dd') : null;
+
+    if (dataInicioStr) {
+        vendasFiltradas = vendasFiltradas.filter(v => v.transaction_date >= dataInicioStr);
     }
-    if (dataFim) {
-        vendasFiltradas = vendasFiltradas.filter(v => v.transaction_date <= dataFim);
+    if (dataFimStr) {
+        vendasFiltradas = vendasFiltradas.filter(v => v.transaction_date <= dataFimStr);
     }
 
     let receita = 0;
@@ -142,18 +149,22 @@ const Dashboard = () => {
     };
   }, [vendasData, filtroConta, dataInicio, dataFim]);
 
-  // --- 4. DADOS DO GRÁFICO: PERFORMANCE DE VENDAS (COM FILTRO) ---
+  // --- 4. DADOS DO GRÁFICO: PERFORMANCE DE VENDAS ---
   const salesChartData = useMemo(() => {
     if (!vendasData) return [];
     
     let baseData = filtroConta === "all" ? vendasData : vendasData.filter(v => v.account_id === filtroConta);
-    if (dataInicio) baseData = baseData.filter(v => v.transaction_date >= dataInicio);
-    if (dataFim) baseData = baseData.filter(v => v.transaction_date <= dataFim);
+    
+    const dataInicioStr = dataInicio ? format(dataInicio, 'yyyy-MM-dd') : null;
+    const dataFimStr = dataFim ? format(dataFim, 'yyyy-MM-dd') : null;
+
+    if (dataInicioStr) baseData = baseData.filter(v => v.transaction_date >= dataInicioStr);
+    if (dataFimStr) baseData = baseData.filter(v => v.transaction_date <= dataFimStr);
 
     const grouped: Record<string, any> = {};
     
     baseData.forEach(v => {
-        const monthKey = v.transaction_date.substring(0, 7); // Pega apenas YYYY-MM
+        const monthKey = v.transaction_date.substring(0, 7); 
         if (!grouped[monthKey]) {
             grouped[monthKey] = { key: monthKey, receita: 0, custo: 0, lucro: 0 };
         }
@@ -164,7 +175,6 @@ const Dashboard = () => {
         grouped[monthKey].lucro += (rec - cust);
     });
 
-    // Ordena cronologicamente e formata o mês para exibição
     return Object.values(grouped).sort((a, b) => a.key.localeCompare(b.key)).map(item => ({
         ...item,
         label: format(new Date(`${item.key}-15T12:00:00`), 'MMM/yy', { locale: ptBR })
@@ -238,8 +248,8 @@ const Dashboard = () => {
   const formatNumber = (value: number) => new Intl.NumberFormat('pt-BR').format(value);
 
   const limparFiltroData = () => {
-      setDataInicio("");
-      setDataFim("");
+      setDataInicio(undefined);
+      setDataFim(undefined);
   };
 
   if (loadingBalance) return <MainLayout><div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div></MainLayout>;
@@ -249,7 +259,7 @@ const Dashboard = () => {
       <PageHeader title="Dashboard Estratégico" description="Visão de patrimônio, fluxo de caixa e resultados operacionais" />
 
       {/* --- BARRA DE FILTROS --- */}
-      <div className="flex flex-col md:flex-row gap-4 mb-6 bg-muted/20 p-4 rounded-lg border border-border/50 md:items-end">
+      <div className="flex flex-col md:flex-row gap-6 mb-6 bg-muted/20 p-4 rounded-lg border border-border/50 md:items-end">
         <div className="space-y-1">
             <Label className="text-xs text-muted-foreground flex items-center gap-1"><Filter className="h-3 w-3" /> Conta</Label>
             <Select value={filtroConta} onValueChange={setFiltroConta}>
@@ -264,9 +274,59 @@ const Dashboard = () => {
         <div className="space-y-1">
             <Label className="text-xs text-muted-foreground flex items-center gap-1"><CalendarDays className="h-3 w-3" /> Período (Para Vendas)</Label>
             <div className="flex items-center gap-2">
-                <Input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} className="w-[140px] bg-background text-sm" />
+                
+                {/* DATE PICKER INÍCIO */}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant={"outline"}
+                      className={`w-[140px] justify-start text-left font-normal bg-background ${!dataInicio && "text-muted-foreground"}`}
+                    >
+                      <CalendarDays className="mr-2 h-4 w-4" />
+                      {dataInicio ? format(dataInicio, "dd/MM/yyyy") : <span>Data Inicial</span>}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={dataInicio}
+                      onSelect={setDataInicio}
+                      locale={ptBR}
+                      initialFocus
+                      captionLayout="dropdown-buttons"
+                      fromYear={2020}
+                      toYear={2035}
+                    />
+                  </PopoverContent>
+                </Popover>
+
                 <span className="text-muted-foreground text-sm">até</span>
-                <Input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} className="w-[140px] bg-background text-sm" />
+
+                {/* DATE PICKER FIM */}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant={"outline"}
+                      className={`w-[140px] justify-start text-left font-normal bg-background ${!dataFim && "text-muted-foreground"}`}
+                    >
+                      <CalendarDays className="mr-2 h-4 w-4" />
+                      {dataFim ? format(dataFim, "dd/MM/yyyy") : <span>Data Final</span>}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={dataFim}
+                      onSelect={setDataFim}
+                      locale={ptBR}
+                      initialFocus
+                      captionLayout="dropdown-buttons"
+                      fromYear={2020}
+                      toYear={2035}
+                    />
+                  </PopoverContent>
+                </Popover>
+
             </div>
         </div>
 
