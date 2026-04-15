@@ -41,10 +41,22 @@ export const useMilesBalance = () => useQuery({
 });
 
 export const useExpiringMiles = () => useQuery({ queryKey: ['expiring_miles'], queryFn: async () => (await supabase.from('expiring_miles').select('*').order('expiration_date')).data || [] });
-export const useSales = () => useQuery({ queryKey: ['sales'], queryFn: async () => (await supabase.from('transactions').select('*').eq('type', 'VENDA').order('transaction_date', { ascending: false })).data || [] });
+
+// --- AQUI ESTÁ A ATUALIZAÇÃO DO USESALES ---
+export const useSales = () => useQuery({ 
+    queryKey: ['sales'], 
+    queryFn: async () => {
+        const { data } = await supabase
+            .from('transactions')
+            .select('*, receivables(total_amount)') // Puxa a receita junto com a venda
+            .eq('type', 'VENDA')
+            .order('transaction_date', { ascending: false });
+        return data || [];
+    } 
+});
+
 export const useReceivableInstallments = () => useQuery({ queryKey: ['receivable_installments'], queryFn: async () => (await supabase.from('receivable_installments').select(`*, receivables (description, total_amount)`).order('due_date')).data || [] });
 
-// CORREÇÃO PARA O "CONTAS A PAGAR" (Busca 'installments')
 export const usePayableInstallments = () => useQuery({ 
     queryKey: ['payable_installments'], 
     queryFn: async () => (await supabase
@@ -56,7 +68,7 @@ export const usePayableInstallments = () => useQuery({
 
 /* --- ESCRITA --- */
 
-// 1. CRIAR VENDA (Com Lógica de Taxa Separada)
+// 1. CRIAR VENDA
 export const useCreateSale = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -66,7 +78,6 @@ export const useCreateSale = () => {
       const qtdMilhas = Math.abs(parseCurrency(newSale.quantidade)); 
       const quantidadeNegativa = -1 * qtdMilhas;
 
-      // 1. Cálculo do CPM (Custo)
       const { data: historico } = await supabase
         .from('transactions')
         .select('quantity, total_cost')
@@ -94,7 +105,6 @@ export const useCreateSale = () => {
           custoDoEstoque = (qtdMilhas / 1000) * cpmAtual;
       }
 
-      // 2. Criar Transação de Venda (Estoque)
       const { data: transaction, error: transError } = await supabase.from('transactions')
         .insert({
             user_id: user?.id,
@@ -110,13 +120,11 @@ export const useCreateSale = () => {
 
       if (transError) throw transError;
 
-      // 3. Registrar Passageiros
       if (newSale.passageiros?.length > 0) {
           const passData = newSale.passageiros.map((p:any) => ({ user_id: user?.id, transaction_id: transaction.id, name: p.nome, cpf: p.cpf }));
           await supabase.from('passengers').insert(passData);
       }
 
-      // 4. Financeiro: Contas a Receber (VENDA)
       if (valorReceitaTotal > 0) {
         const { data: receivable, error: recError } = await supabase.from('receivables')
           .insert({
@@ -141,15 +149,13 @@ export const useCreateSale = () => {
         }
       }
 
-      // 5. --- LÓGICA DE TAXA EM DINHEIRO (SEPARADA) ---
       const taxDetails = newSale.taxDetails;
       if (taxDetails && taxDetails.hasTax && taxDetails.type === 'MONEY') {
           const taxVal = parseCurrency(taxDetails.amount);
           
-          // A. Contas a Pagar (Custo da Taxa no Cartão)
           const { data: payable } = await supabase.from('payables').insert({
               user_id: user?.id,
-              transaction_id: transaction.id, // Vincula à venda para rastreio
+              transaction_id: transaction.id, 
               credit_card_id: taxDetails.cardId,
               description: `Pgto Taxa Embarque - Venda #${transaction.id.slice(0, 8)}`,
               total_amount: taxVal,
@@ -162,12 +168,11 @@ export const useCreateSale = () => {
                   payable_id: payable.id,
                   installment_number: 1,
                   amount: taxVal,
-                  due_date: taxDetails.cardDueDate, // Data calculada no frontend
+                  due_date: taxDetails.cardDueDate, 
                   status: 'PENDENTE'
               });
           }
 
-          // B. Contas a Receber (Reembolso da Taxa)
           const { data: taxRec } = await supabase.from('receivables').insert({
               user_id: user?.id,
               transaction_id: transaction.id,
@@ -182,7 +187,7 @@ export const useCreateSale = () => {
                   receivable_id: taxRec.id,
                   installment_number: 1,
                   amount: taxVal,
-                  due_date: newSale.dataRecebimento, // Recebe junto com a venda
+                  due_date: newSale.dataRecebimento, 
                   status: 'PENDENTE'
               });
           }
@@ -196,7 +201,7 @@ export const useCreateSale = () => {
   });
 };
 
-// 2. TRANSFERÊNCIA (AGORA COM FINANCEIRO INTEGRADO)
+// 2. TRANSFERÊNCIA
 export const useCreateTransfer = () => {
   const queryClient = useQueryClient();
 
@@ -213,7 +218,6 @@ export const useCreateTransfer = () => {
       const qtdEntra = Math.abs(parseCurrency(quantidadeDestino));
       const taxa = parseCurrency(custoTransferencia);
 
-      // 1. Busca Histórico da Origem para calcular CPM
       const { data: historico, error: erroHist } = await supabase
         .from('transactions')
         .select('quantity, total_cost')
@@ -243,7 +247,6 @@ export const useCreateTransfer = () => {
           custoTotalSaindo = (qtdSai / 1000) * cpmOrigem;
       }
 
-      // 2. Transação de Saída (Origem)
       const { error: errorOrigem } = await supabase.from('transactions').insert({
         user_id: user?.id, 
         account_id: contaOrigemId, 
@@ -257,7 +260,6 @@ export const useCreateTransfer = () => {
       });
       if (errorOrigem) throw errorOrigem;
 
-      // 3. Transação de Entrada (Destino)
       const custoFinalEntrada = custoTotalSaindo + taxa;
       
       const { data: transDestino, error: errorDestino } = await supabase.from('transactions').insert({
@@ -270,15 +272,14 @@ export const useCreateTransfer = () => {
         transaction_date: dataTransferencia,
         description: `Transf. do programa ID: ${programaOrigemId} (Entrada)`,
         notes: `${observacao || ''} | Custo Herdado: R$ ${custoTotalSaindo.toFixed(2)} + Custos Extras: R$ ${taxa.toFixed(2)}`
-      }).select().single(); // Precisamos do ID para vincular o Contas a Pagar
+      }).select().single(); 
       
       if (errorDestino) throw errorDestino;
 
-      // 4. Lógica Financeira (Contas a Pagar)
       if (taxa > 0 && transDestino) {
           const { data: payable } = await supabase.from('payables').insert({
               user_id: user?.id,
-              transaction_id: transDestino.id, // Vincula à entrada das milhas
+              transaction_id: transDestino.id, 
               credit_card_id: useCreditCard ? cardId : null,
               description: `Custo de Transferência / Compra de Pontos`,
               total_amount: taxa,
@@ -301,7 +302,7 @@ export const useCreateTransfer = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] }); 
       queryClient.invalidateQueries({ queryKey: ['miles_balance'] });
-      queryClient.invalidateQueries({ queryKey: ['payable_installments'] }); // Atualiza financeiro
+      queryClient.invalidateQueries({ queryKey: ['payable_installments'] }); 
       toast.success('Transferência e financeiro registrados!');
     },
     onError: (error: any) => { toast.error(`${error.message}`); }
