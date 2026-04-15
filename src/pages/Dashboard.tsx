@@ -4,6 +4,9 @@ import { PageHeader } from '@/components/ui/page-header';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Plane,
   TrendingDown,
@@ -16,7 +19,8 @@ import {
   Banknote,
   Target,
   Percent,
-  TrendingUp
+  TrendingUp,
+  CalendarDays
 } from 'lucide-react';
 import { 
   Select, 
@@ -38,12 +42,9 @@ import { format, addMonths, differenceInMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
-  ResponsiveContainer, Area, ComposedChart 
+  ResponsiveContainer, Area, ComposedChart, Line 
 } from 'recharts';
 
-const COLORS = ['hsl(var(--primary))', 'hsl(var(--success))', 'hsl(var(--warning))', 'hsl(var(--destructive))', 'hsl(var(--secondary))'];
-
-// Preços médios de venda (ajuste conforme o mercado)
 const MARKET_PRICES: Record<string, number> = {
   'LATAM PASS': 25.50,
   'SMILES': 15.50,
@@ -60,11 +61,14 @@ const Dashboard = () => {
   const { data: receivableInstallments } = useReceivableInstallments();
   const { data: transactions } = useTransactions();
   const { data: accounts } = useAccounts();
-  const { data: vendasData } = useSales(); // Puxa as VENDAS reais
+  const { data: vendasData } = useSales(); 
 
+  // --- ESTADOS DOS FILTROS ---
   const [filtroConta, setFiltroConta] = useState("all");
+  const [dataInicio, setDataInicio] = useState("");
+  const [dataFim, setDataFim] = useState("");
 
-  // --- 1. LÓGICA DE PATRIMÔNIO E MERCADO ---
+  // --- 1. LÓGICA DE PATRIMÔNIO E MERCADO (GLOBAL) ---
   const { totalMiles, totalInvested, marketValue, avgCpmGlobal } = useMemo(() => {
     if (!milesBalance) return { totalMiles: 0, totalInvested: 0, marketValue: 0, avgCpmGlobal: 0 };
     
@@ -85,7 +89,7 @@ const Dashboard = () => {
     };
   }, [milesBalance, filtroConta]);
 
-  // --- 2. LÓGICA DE ENDIVIDAMENTO ---
+  // --- 2. LÓGICA DE ENDIVIDAMENTO (GLOBAL) ---
   const { totalPayableAllTime, totalReceivableAllTime } = useMemo(() => {
     const pay = payableInstallments?.filter(i => i.status === 'pendente').reduce((acc, i) => acc + Number(i.amount), 0) || 0;
     const rec = receivableInstallments?.filter(i => i.status === 'pendente').reduce((acc, i) => acc + Number(i.amount), 0) || 0;
@@ -95,21 +99,29 @@ const Dashboard = () => {
   const equity = (marketValue + totalReceivableAllTime) - totalPayableAllTime;
   const coverageIndex = totalPayableAllTime > 0 ? marketValue / totalPayableAllTime : 0;
 
-  // --- 3. LÓGICA DE PERFORMANCE DE VENDAS (LUCRO REAL) ---
+  // --- 3. LÓGICA DE PERFORMANCE DE VENDAS (COM FILTRO DE DATA) ---
   const { receitaTotal, custoVendas, lucroOperacional, cpmVendido, cpmCustoVenda, margemLucro, spread } = useMemo(() => {
     if (!vendasData) return { receitaTotal: 0, custoVendas: 0, lucroOperacional: 0, cpmVendido: 0, cpmCustoVenda: 0, margemLucro: 0, spread: 0 };
 
-    const vendasFiltradas = filtroConta === "all" ? vendasData : vendasData.filter(v => v.account_id === filtroConta);
+    // Filtra por Conta
+    let vendasFiltradas = filtroConta === "all" ? vendasData : vendasData.filter(v => v.account_id === filtroConta);
+
+    // Filtra por Data de Início e Fim
+    if (dataInicio) {
+        vendasFiltradas = vendasFiltradas.filter(v => v.transaction_date >= dataInicio);
+    }
+    if (dataFim) {
+        vendasFiltradas = vendasFiltradas.filter(v => v.transaction_date <= dataFim);
+    }
 
     let receita = 0;
     let custo = 0;
     let milhas = 0;
 
     vendasFiltradas.forEach(v => {
-        // Pega a receita do Contas a Receber (Venda + Taxa) ou usa o preço base da venda
         const receitaVenda = v.receivables?.[0]?.total_amount || v.sale_price || 0;
         receita += Number(receitaVenda);
-        custo += Number(v.total_cost || 0); // O custo base (Estoque) daquelas milhas
+        custo += Number(v.total_cost || 0); 
         milhas += Math.abs(Number(v.quantity || 0));
     });
 
@@ -128,13 +140,41 @@ const Dashboard = () => {
         margemLucro: margem,
         spread: calculoSpread
     };
-  }, [vendasData, filtroConta]);
+  }, [vendasData, filtroConta, dataInicio, dataFim]);
 
-  // --- 4. LÓGICA DO GRÁFICO DE FLUXO DE CAIXA ---
+  // --- 4. DADOS DO GRÁFICO: PERFORMANCE DE VENDAS (COM FILTRO) ---
+  const salesChartData = useMemo(() => {
+    if (!vendasData) return [];
+    
+    let baseData = filtroConta === "all" ? vendasData : vendasData.filter(v => v.account_id === filtroConta);
+    if (dataInicio) baseData = baseData.filter(v => v.transaction_date >= dataInicio);
+    if (dataFim) baseData = baseData.filter(v => v.transaction_date <= dataFim);
+
+    const grouped: Record<string, any> = {};
+    
+    baseData.forEach(v => {
+        const monthKey = v.transaction_date.substring(0, 7); // Pega apenas YYYY-MM
+        if (!grouped[monthKey]) {
+            grouped[monthKey] = { key: monthKey, receita: 0, custo: 0, lucro: 0 };
+        }
+        const rec = Number(v.receivables?.[0]?.total_amount || v.sale_price || 0);
+        const cust = Number(v.total_cost || 0);
+        grouped[monthKey].receita += rec;
+        grouped[monthKey].custo += cust;
+        grouped[monthKey].lucro += (rec - cust);
+    });
+
+    // Ordena cronologicamente e formata o mês para exibição
+    return Object.values(grouped).sort((a, b) => a.key.localeCompare(b.key)).map(item => ({
+        ...item,
+        label: format(new Date(`${item.key}-15T12:00:00`), 'MMM/yy', { locale: ptBR })
+    }));
+  }, [vendasData, filtroConta, dataInicio, dataFim]);
+
+  // --- 5. DADOS DO GRÁFICO: FLUXO DE CAIXA ---
   const cashFlowData = useMemo(() => {
     const months = [];
     const currentDate = new Date();
-    
     const startDate = new Date(2026, 0, 1);
     const diffMonths = differenceInMonths(startDate, currentDate);
 
@@ -168,7 +208,7 @@ const Dashboard = () => {
     });
   }, [payableInstallments, receivableInstallments]);
 
-  // --- 5. CPM POR PROGRAMA ---
+  // --- 6. CPM POR PROGRAMA ---
   const cpmByProgram = useMemo(() => {
     const agrupado: any[] = [];
     const base = filtroConta === "all" ? milesBalance : milesBalance?.filter(m => m.account_id === filtroConta);
@@ -197,25 +237,47 @@ const Dashboard = () => {
   const formatCurrency = (value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
   const formatNumber = (value: number) => new Intl.NumberFormat('pt-BR').format(value);
 
+  const limparFiltroData = () => {
+      setDataInicio("");
+      setDataFim("");
+  };
+
   if (loadingBalance) return <MainLayout><div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div></MainLayout>;
 
   return (
     <MainLayout>
       <PageHeader title="Dashboard Estratégico" description="Visão de patrimônio, fluxo de caixa e resultados operacionais" />
 
-      {/* Filtros */}
-      <div className="flex gap-4 mb-6 bg-muted/20 p-4 rounded-lg border border-border/50 items-center">
-        <Filter className="h-4 w-4 text-muted-foreground" />
-        <Select value={filtroConta} onValueChange={setFiltroConta}>
-          <SelectTrigger className="w-[250px] bg-background"><SelectValue placeholder="Todas as Contas" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todas as Contas</SelectItem>
-            {accounts?.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
+      {/* --- BARRA DE FILTROS --- */}
+      <div className="flex flex-col md:flex-row gap-4 mb-6 bg-muted/20 p-4 rounded-lg border border-border/50 md:items-end">
+        <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground flex items-center gap-1"><Filter className="h-3 w-3" /> Conta</Label>
+            <Select value={filtroConta} onValueChange={setFiltroConta}>
+            <SelectTrigger className="w-full md:w-[220px] bg-background"><SelectValue placeholder="Todas as Contas" /></SelectTrigger>
+            <SelectContent>
+                <SelectItem value="all">Todas as Contas</SelectItem>
+                {accounts?.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+            </SelectContent>
+            </Select>
+        </div>
+
+        <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground flex items-center gap-1"><CalendarDays className="h-3 w-3" /> Período (Para Vendas)</Label>
+            <div className="flex items-center gap-2">
+                <Input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} className="w-[140px] bg-background text-sm" />
+                <span className="text-muted-foreground text-sm">até</span>
+                <Input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} className="w-[140px] bg-background text-sm" />
+            </div>
+        </div>
+
+        {(dataInicio || dataFim) && (
+            <Button variant="ghost" size="sm" onClick={limparFiltroData} className="text-xs text-muted-foreground hover:text-destructive">
+                Limpar Datas
+            </Button>
+        )}
       </div>
 
-      {/* BLOCO 1: CAIXA E MERCADO (SUA PRIMEIRA LINHA ORIGINAL) */}
+      {/* BLOCO 1: CAIXA E MERCADO */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
         <StatCard
           title="Patrimônio Líquido (Equity)"
@@ -247,7 +309,7 @@ const Dashboard = () => {
         />
       </div>
 
-      {/* BLOCO 2: RESULTADOS DE VENDAS (A MÁGICA NOVA!) */}
+      {/* BLOCO 2: RESULTADOS DE VENDAS */}
       <div className="mb-3 mt-8">
           <h2 className="text-lg font-bold flex items-center gap-2"><Target className="h-5 w-5 text-emerald-500"/> Performance de Vendas</h2>
           <p className="text-sm text-muted-foreground">Resultados operacionais baseados no Custo (Estoque) vs Receita (A Receber).</p>
@@ -283,7 +345,7 @@ const Dashboard = () => {
         />
       </div>
 
-      {/* BLOCO 3: ESTOQUE (SUA SEGUNDA LINHA ORIGINAL) */}
+      {/* BLOCO 3: ESTOQUE */}
       <div className="mb-3 mt-8">
           <h2 className="text-lg font-bold flex items-center gap-2"><Plane className="h-5 w-5 text-secondary"/> Posição de Estoque</h2>
       </div>
@@ -293,10 +355,35 @@ const Dashboard = () => {
         <StatCard title="Custo do Estoque" value={formatCurrency(totalInvested)} icon={Wallet} />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Gráfico de Fluxo de Caixa */}
-        <Card className="lg:col-span-2">
-          <CardHeader><CardTitle>Projeção de Fluxo de Caixa (Jan/26 a +4 meses)</CardTitle></CardHeader>
+      {/* BLOCO 4: GRÁFICOS */}
+      <div className="grid gap-6 lg:grid-cols-2 mb-8">
+        
+        {/* Gráfico 1: Evolução de Vendas e Lucro */}
+        <Card>
+          <CardHeader><CardTitle>Performance de Vendas (Mensal)</CardTitle></CardHeader>
+          <CardContent>
+            <div className="h-80">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={salesChartData}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                  <XAxis dataKey="label" stroke="hsl(var(--muted-foreground))" />
+                  <YAxis stroke="hsl(var(--muted-foreground))" tickFormatter={(v) => `R$${v/1000}k`} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
+                    formatter={(v: number) => formatCurrency(v)}
+                  />
+                  <Bar dataKey="receita" name="Receita" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="custo" name="Custo do Estoque" fill="hsl(var(--destructive))" radius={[4, 4, 0, 0]} />
+                  <Line type="monotone" dataKey="lucro" name="Lucro Líquido" stroke="hsl(var(--success))" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Gráfico 2: Fluxo de Caixa Futuro */}
+        <Card>
+          <CardHeader><CardTitle>Projeção de Fluxo de Caixa (Próx. Meses)</CardTitle></CardHeader>
           <CardContent>
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
@@ -308,52 +395,52 @@ const Dashboard = () => {
                     contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
                     formatter={(v: number) => formatCurrency(v)}
                   />
-                  <Bar dataKey="entradas" name="Entradas" fill="hsl(var(--success))" radius={[4, 4, 0, 0]} barSize={40} />
-                  <Bar dataKey="saidas" name="Saídas" fill="hsl(var(--destructive))" radius={[4, 4, 0, 0]} barSize={40} />
+                  <Bar dataKey="entradas" name="Entradas" fill="hsl(var(--success))" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="saidas" name="Saídas" fill="hsl(var(--destructive))" radius={[4, 4, 0, 0]} />
                   <Area type="monotone" dataKey="saldo" name="Saldo Acumulado" fill="hsl(var(--primary)/0.1)" stroke="hsl(var(--primary))" strokeWidth={2} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
           </CardContent>
         </Card>
-
-        {/* Tabela de CPMs */}
-        <Card className="lg:col-span-2">
-          <CardHeader><CardTitle>Gestão por Programa (Mark-to-Market)</CardTitle></CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b text-muted-foreground text-sm">
-                    <th className="text-left py-3 px-4">Programa</th>
-                    <th className="text-right py-3 px-4">Saldo</th>
-                    <th className="text-right py-3 px-4">CPM Atual</th>
-                    <th className="text-right py-3 px-4">Preço Mercado</th>
-                    <th className="text-right py-3 px-4">Spread Virtual</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {cpmByProgram.map((item) => {
-                    const mktPrice = MARKET_PRICES[item.name.toUpperCase()] || 0;
-                    const spread = mktPrice - (item.cpm || 0);
-                    return (
-                      <tr key={item.name} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
-                        <td className="py-3 px-4"><Badge variant="outline">{item.name}</Badge></td>
-                        <td className="text-right py-3 px-4 font-medium">{formatNumber(item.balance)}</td>
-                        <td className="text-right py-3 px-4 text-destructive font-bold">{formatCPM(item.cpm)}</td>
-                        <td className="text-right py-3 px-4 text-success font-bold">{formatCPM(mktPrice)}</td>
-                        <td className={`text-right py-3 px-4 font-bold ${spread >= 0 ? 'text-success' : 'text-destructive'}`}>
-                          {formatCurrency(spread)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
       </div>
+
+      {/* Tabela de CPMs */}
+      <Card>
+        <CardHeader><CardTitle>Gestão por Programa (Mark-to-Market)</CardTitle></CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b text-muted-foreground text-sm">
+                  <th className="text-left py-3 px-4">Programa</th>
+                  <th className="text-right py-3 px-4">Saldo</th>
+                  <th className="text-right py-3 px-4">CPM Atual</th>
+                  <th className="text-right py-3 px-4">Preço Mercado</th>
+                  <th className="text-right py-3 px-4">Spread Virtual</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cpmByProgram.map((item) => {
+                  const mktPrice = MARKET_PRICES[item.name.toUpperCase()] || 0;
+                  const spreadVirtual = mktPrice - (item.cpm || 0);
+                  return (
+                    <tr key={item.name} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                      <td className="py-3 px-4"><Badge variant="outline">{item.name}</Badge></td>
+                      <td className="text-right py-3 px-4 font-medium">{formatNumber(item.balance)}</td>
+                      <td className="text-right py-3 px-4 text-destructive font-bold">{formatCPM(item.cpm)}</td>
+                      <td className="text-right py-3 px-4 text-success font-bold">{formatCPM(mktPrice)}</td>
+                      <td className={`text-right py-3 px-4 font-bold ${spreadVirtual >= 0 ? 'text-success' : 'text-destructive'}`}>
+                        {formatCurrency(spreadVirtual)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
     </MainLayout>
   );
 };
