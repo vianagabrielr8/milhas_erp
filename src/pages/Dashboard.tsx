@@ -29,7 +29,6 @@ import {
   SelectValue 
 } from '@/components/ui/select';
 
-// NOVOS IMPORTS PARA O CALENDÁRIO (UX)
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 
@@ -67,9 +66,7 @@ const Dashboard = () => {
   const { data: accounts } = useAccounts();
   const { data: vendasData } = useSales(); 
 
-  // --- ESTADOS DOS FILTROS ---
   const [filtroConta, setFiltroConta] = useState("all");
-  // Agora os estados de data guardam um objeto Date real (melhor para o Calendário)
   const [dataInicio, setDataInicio] = useState<Date | undefined>();
   const [dataFim, setDataFim] = useState<Date | undefined>();
 
@@ -110,7 +107,6 @@ const Dashboard = () => {
 
     let vendasFiltradas = filtroConta === "all" ? vendasData : vendasData.filter(v => v.account_id === filtroConta);
 
-    // Converte as datas selecionadas para o formato YYYY-MM-DD para comparar com o banco
     const dataInicioStr = dataInicio ? format(dataInicio, 'yyyy-MM-dd') : null;
     const dataFimStr = dataFim ? format(dataFim, 'yyyy-MM-dd') : null;
 
@@ -275,7 +271,7 @@ const Dashboard = () => {
             <Label className="text-xs text-muted-foreground flex items-center gap-1"><CalendarDays className="h-3 w-3" /> Período (Para Vendas)</Label>
             <div className="flex items-center gap-2">
                 
-                {/* DATE PICKER INÍCIO */}
+                {/* DATE PICKER INÍCIO (LIMPO) */}
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
@@ -293,16 +289,13 @@ const Dashboard = () => {
                       onSelect={setDataInicio}
                       locale={ptBR}
                       initialFocus
-                      captionLayout="dropdown-buttons"
-                      fromYear={2020}
-                      toYear={2035}
                     />
                   </PopoverContent>
                 </Popover>
 
                 <span className="text-muted-foreground text-sm">até</span>
 
-                {/* DATE PICKER FIM */}
+                {/* DATE PICKER FIM (LIMPO) */}
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
@@ -320,9 +313,6 @@ const Dashboard = () => {
                       onSelect={setDataFim}
                       locale={ptBR}
                       initialFocus
-                      captionLayout="dropdown-buttons"
-                      fromYear={2020}
-                      toYear={2035}
                     />
                   </PopoverContent>
                 </Popover>
