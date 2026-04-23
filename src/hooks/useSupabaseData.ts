@@ -42,7 +42,7 @@ export const useMilesBalance = () => useQuery({
 
 export const useExpiringMiles = () => useQuery({ queryKey: ['expiring_miles'], queryFn: async () => (await supabase.from('expiring_miles').select('*').order('expiration_date')).data || [] });
 
-// --- AQUI ESTÁ A ATUALIZAÇÃO DO USESALES ---
+// --- ATUALIZAÇÃO DO USESALES ---
 export const useSales = () => useQuery({ 
     queryKey: ['sales'], 
     queryFn: async () => {
@@ -380,11 +380,14 @@ export const useCreatePassenger = () => { const qc = useQueryClient(); return us
 export const useDeleteTransaction = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async (id: string) => { await supabase.from('transactions').delete().eq('id', id); }, onSuccess: () => { qc.invalidateQueries({ queryKey: ['transactions'] }); qc.invalidateQueries({ queryKey: ['miles_balance'] }); } })};
 export const useUpdateTransaction = () => { const qc = useQueryClient(); return useMutation({ mutationFn: async ({ id, ...updates }: any) => { const safeUpdates = { ...updates }; if (safeUpdates.total_cost) safeUpdates.total_cost = parseCurrency(safeUpdates.total_cost); const { error } = await supabase.from('transactions').update(safeUpdates).eq('id', id); if (error) throw error; }, onSuccess: () => { qc.invalidateQueries({ queryKey: ['transactions'] }); qc.invalidateQueries({ queryKey: ['miles_balance'] }); qc.invalidateQueries({ queryKey: ['sales'] }); toast.success('Atualizado!'); } }) };
 
+// --- CORREÇÃO AQUI (CARTÕES) ---
 export const useCreateCreditCard = () => { 
     const qc = useQueryClient(); 
     return useMutation({ 
         mutationFn: async (c: any) => { 
-            await supabase.from('credit_cards').insert({...c, limit_amount: parseCurrency(c.limite)}); 
+            const { data: { user } } = await supabase.auth.getUser();
+            const { error } = await supabase.from('credit_cards').insert({ ...c, user_id: user?.id }); 
+            if (error) throw error;
         }, 
         onSuccess: () => qc.invalidateQueries({ queryKey: ['credit_cards'] }) 
     })
@@ -394,7 +397,8 @@ export const useUpdateCreditCard = () => {
     const qc = useQueryClient(); 
     return useMutation({ 
         mutationFn: async ({id, ...c}: any) => { 
-            await supabase.from('credit_cards').update({...c, limit_amount: parseCurrency(c.limite)}).eq('id', id); 
+            const { error } = await supabase.from('credit_cards').update(c).eq('id', id); 
+            if (error) throw error;
         }, 
         onSuccess: () => qc.invalidateQueries({ queryKey: ['credit_cards'] }) 
     })
@@ -404,7 +408,8 @@ export const useDeleteCreditCard = () => {
     const qc = useQueryClient(); 
     return useMutation({ 
         mutationFn: async (id: string) => { 
-            await supabase.from('credit_cards').delete().eq('id', id); 
+            const { error } = await supabase.from('credit_cards').delete().eq('id', id); 
+            if (error) throw error;
         }, 
         onSuccess: () => qc.invalidateQueries({ queryKey: ['credit_cards'] }) 
     })
