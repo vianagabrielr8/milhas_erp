@@ -28,6 +28,7 @@ const CartoesPagamento = () => {
 
   const [isOpen, setIsOpen] = useState(false);
   const [editingCard, setEditingCard] = useState<CreditCardType | null>(null);
+  
   const [formData, setFormData] = useState({
     name: '',
     closing_day: '',
@@ -46,10 +47,31 @@ const CartoesPagamento = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // GARANTE QUE O NOME NÃO ESTÁ VAZIO
+    if (!formData.name.trim()) {
+        toast.error('O nome do cartão é obrigatório.');
+        return;
+    }
+
+    // CONVERTE E GARANTE QUE SÃO NÚMEROS VÁLIDOS
+    const closingDay = parseInt(formData.closing_day, 10);
+    const dueDay = parseInt(formData.due_day, 10);
+
+    if (isNaN(closingDay) || closingDay < 1 || closingDay > 31) {
+        toast.error('Dia de fechamento inválido.');
+        return;
+    }
+
+    if (isNaN(dueDay) || dueDay < 1 || dueDay > 31) {
+        toast.error('Dia de vencimento inválido.');
+        return;
+    }
+
+    // MONTA O PAYLOAD EXATAMENTE COMO NO SEU CÓDIGO ORIGINAL
     const cardData = {
-      name: formData.name,
-      closing_day: parseInt(formData.closing_day),
-      due_day: parseInt(formData.due_day),
+      name: formData.name.trim(),
+      closing_day: closingDay,
+      due_day: dueDay,
     };
 
     try {
@@ -62,8 +84,8 @@ const CartoesPagamento = () => {
       }
       setIsOpen(false);
       resetForm();
-    } catch (error) {
-      toast.error('Erro ao salvar cartão');
+    } catch (error: any) {
+      toast.error(`Erro ao salvar cartão: ${error.message}`);
     }
   };
 
