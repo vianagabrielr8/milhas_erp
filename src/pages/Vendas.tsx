@@ -31,7 +31,7 @@ const formatDateSafe = (dateString: string) => {
 };
 
 // LISTA DE FILTRO: Só estas aparecerão no formulário de venda
-const AEREAS_PERMITIDAS = ['LATAM PASS', 'SMILES', 'TAP MILES&GO', 'TUDO AZUL'];
+const AEREAS_PERMITIDAS = ['LATAM PASS', 'SMILES', 'TAP MILES&GO', 'TUDO AZUL', 'IBERIA', 'IBERIA PLUS', 'AADVANTAGE'];
 
 interface PassageiroVenda {
     id: string;
